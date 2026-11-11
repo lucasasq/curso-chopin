@@ -402,6 +402,26 @@ h2 { text-wrap: balance; }
 .peca-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; display: grid; gap: 10px; align-content: start; min-width: 0; }
 .peca-card h3 { font-family: var(--font-display); font-size: 1.25rem; font-weight: 500; font-variation-settings: "opsz" 48; margin-top: 2px; }
 
+/* ---------- ligar o som (iPad/iPhone) ---------- */
+.ativar-som {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; display: grid; justify-items: center;
+  padding: 0 max(16px, env(safe-area-inset-left, 0px)) max(16px, env(safe-area-inset-bottom, 0px));
+  pointer-events: none;
+}
+.ativar-som-btn {
+  pointer-events: auto; display: flex; align-items: center; gap: 14px; text-align: left;
+  width: min(560px, 100%); min-height: 76px; padding: 14px 18px; border-radius: 16px;
+  border: 1px solid var(--accent); background: var(--accent); color: var(--accent-ink);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35); animation: ativar-som-entra 0.4s ease-out;
+}
+.ativar-som-ico { width: 44px; height: 44px; border-radius: 50%; background: var(--accent-ink); color: var(--accent); display: grid; place-items: center; flex: none; }
+.ativar-som-ico svg { width: 20px; height: 20px; }
+.ativar-som-txt { display: grid; gap: 2px; min-width: 0; }
+.ativar-som-txt b { font-size: 1.05rem; }
+.ativar-som-txt span { font-size: 0.85rem; opacity: 0.85; }
+@keyframes ativar-som-entra { from { transform: translateY(20px); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .ativar-som-btn { animation: none; } }
+
 @media (max-width: 860px) {
   .abertura, .aula-info { grid-template-columns: minmax(0, 1fr); }
   .principios { grid-template-columns: repeat(2, minmax(0, 1fr)); }

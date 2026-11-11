@@ -203,8 +203,19 @@
         this.mestre.connect(this.saida);
         this.saida.connect(this.ctx.destination);
       }
-      if (this.ctx.state === 'suspended') this.ctx.resume();
+      if (this.ctx.state !== 'running') this.ctx.resume().catch(() => {});
+      if (!this.ligado) { this.ligado = true; document.dispatchEvent(new CustomEvent('som-ligado')); }
       return this.ctx;
+    },
+    get precisaToque() {
+      // iPhone/iPad (e Macs com tela de toque): o som só sai depois de um toque do usuário
+      const toque = 'ontouchend' in document || navigator.maxTouchPoints > 1;
+      return toque && (!this.ligado || (this.ctx && this.ctx.state !== 'running'));
+    },
+    confirmar() {
+      // três notas da posição de Chopin, para a pessoa ouvir que o som está ligado
+      const ctx = this.iniciar(); if (!ctx) return;
+      [64, 68, 71].forEach((m, i) => this.nota(m, ctx.currentTime + 0.05 + i * 0.18, 0.5, 0.6));
     },
     nota(m, quando, dur, v = 0.7) {
       const ctx = this.ctx; if (!ctx) return;
@@ -238,6 +249,30 @@
       g.gain.exponentialRampToValueAtTime(0.0001, quando + 0.04);
       o.connect(g); g.connect(this.mestre); o.start(quando); o.stop(quando + 0.06);
     }
+  };
+
+  /* ------------------------------------------------------------ ligar o som (iPad/iPhone) */
+  const AtivarSom = {
+    el: null,
+    montar() {
+      if (this.el) return;
+      this.el = document.createElement('div');
+      this.el.id = 'ativar-som'; this.el.className = 'ativar-som'; this.el.hidden = true;
+      this.el.innerHTML = `<button type="button" class="ativar-som-btn" aria-label="Ligar o som do curso">
+          <span class="ativar-som-ico" aria-hidden="true">${ICONE_PLAY}</span>
+          <span class="ativar-som-txt"><b>Toque aqui para ligar o som</b><span>O iPad só libera o áudio depois de um toque. Você vai ouvir três notas de confirmação.</span></span>
+        </button>`;
+      document.body.appendChild(this.el);
+      this.el.querySelector('button').addEventListener('click', () => { Som.confirmar(); this.esconder(); });
+      document.addEventListener('som-ligado', () => this.esconder());
+      document.addEventListener('visibilitychange', () => { if (!document.hidden) setTimeout(() => this.conferir(), 300); });
+    },
+    conferir() {
+      this.montar();
+      if (Som.precisaToque) { if (Som.ctx && Som.ctx.state !== 'running') Som.ligado = false; this.el.hidden = false; }
+      else this.esconder();
+    },
+    esconder() { if (this.el) this.el.hidden = true; }
   };
 
   /* ------------------------------------------------------------ narração */
@@ -1092,6 +1127,7 @@
     if (vista === 'progresso') renderProgresso();
     if (vista === 'musicas') { if (h.startsWith('musica-')) renderMusica(h.slice(7)); else renderMusicas(); }
     window.scrollTo(0, 0);
+    if (vista !== 'curso') AtivarSom.conferir();
   }
   window.addEventListener('hashchange', rota);
   document.addEventListener('midi-estado', () => { if (playerAtual) playerAtual.atualizarStatus(); });
@@ -2144,4 +2180,5 @@
   Midi.iniciar(false);
   Nuvem.iniciar();
   rota();
+  AtivarSom.conferir();
 })();
