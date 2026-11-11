@@ -1344,7 +1344,8 @@
   function figurasHTML(a) {
     if (!a.figuras || !a.figuras.length) return '';
     return `<div class="figuras">${a.figuras.map(f => `<figure class="figura">
-        <img src="img/${esc(f.arq)}" alt="${esc(f.titulo)}" loading="lazy">
+        ${f.img ? `<img class="ilustracao" src="img/${esc(f.img)}" alt="${esc(f.titulo)}, ilustração" loading="lazy" onerror="this.remove()">` : ''}
+        <img src="img/${esc(f.arq)}" alt="${esc(f.titulo)}, animação" loading="lazy">
         <figcaption><b>${esc(f.titulo)}</b><span>${esc(f.legenda)}</span></figcaption>
       </figure>`).join('')}</div>`;
   }
