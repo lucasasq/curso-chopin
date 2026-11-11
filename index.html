@@ -248,6 +248,13 @@ p { margin: 0; }
 .barra-prog div { height: 100%; width: 0; background: var(--accent); }
 .secoes-chips { display: flex; gap: 6px; flex-wrap: wrap; }
 .secoes-chips button { border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 4px 12px; font-size: 0.85rem; min-height: 34px; }
+/* foco ao tocar: só o teclado, as mãos, o treinador e o transporte */
+body.foco .narracao, body.foco .figuras, body.foco .aula-cab, body.foco .hoje-cab, body.foco .guia-barra, body.foco .controles,
+body.foco .aula-info, body.foco .criterio, body.foco .plano-estudo, body.foco .peca-box, body.foco .hoje-rodape, body.foco .navaulas,
+body.foco .leitura-aviso, body.foco #resultado, body.foco .topo, body.foco .ativar-som, body.foco .player:not(.leitura) .partitura, body.foco .tabela-wrap, body.foco h2, body.foco h3 { display: none !important; }
+body.foco main { padding-top: 8px; }
+body.foco .palco { height: clamp(360px, 62vh, 640px); }
+body.foco .transporte::after { content: "Modo foco: a tela volta ao normal quando você pausa ou termina."; font-size: 0.8rem; color: var(--muted); flex-basis: 100%; }
 .status { font-size: 0.95rem; color: var(--muted); min-height: 1.5em; }
 .treinador { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 16px; align-items: center; background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--line); border-radius: var(--radius); padding: 10px 14px; min-height: 56px; }
 .tr-msg { font-size: 1rem; color: var(--muted); }
@@ -547,12 +554,12 @@ h2 { text-wrap: balance; }
   </div>
 </main>
 
-<script src="vendor/vexflow.js?v=202611111613"></script>
-<script src="partitura.js?v=202611111613"></script>
-<script src="vendor/supabase.js?v=202611111613"></script>
-<script src="config.js?v=202611111613"></script>
-<script src="dados.js?v=202611111613"></script>
-<script src="app.js?v=202611111613"></script>
+<script src="vendor/vexflow.js?v=202611111622"></script>
+<script src="partitura.js?v=202611111622"></script>
+<script src="vendor/supabase.js?v=202611111622"></script>
+<script src="config.js?v=202611111622"></script>
+<script src="dados.js?v=202611111622"></script>
+<script src="app.js?v=202611111622"></script>
 
 </body>
 </html>

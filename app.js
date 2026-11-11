@@ -847,7 +847,7 @@
       this.atualizarStatus();
     }
     destruir() {
-      this.parar(); Midi.ouvintes.delete(this.ouvinte); this.ro.disconnect();
+      this.parar(); document.body.classList.remove('foco'); Midi.ouvintes.delete(this.ouvinte); this.ro.disconnect();
       Player.metro && Player.metro.parar();
     }
     get ativas() { return this.aula.notas.filter(n => this.maos === 'todas' || n.h === this.maos); }
@@ -891,6 +891,12 @@
       this.desenhar(); this.atualizarStatus(); this.atualizarProgresso();
       if (tocava) this.tocar();
     }
+    aplicarFoco() {
+      const ligado = estado.prefs.foco !== false && this.tocando && this.modo === 'praticar' && !this.aoFimTrecho;
+      const mudou = document.body.classList.contains('foco') !== ligado;
+      document.body.classList.toggle('foco', ligado);
+      if (ligado && mudou) setTimeout(() => rolar($('.palco', this.raiz) || this.raiz, 'start'), 60);
+    }
     tocar() {
       const ctx = Som.iniciar(); if (!ctx) return;
       if (this.modo === 'praticar' && (this.terminou || this.idx >= this.eventos.length)) this.reiniciar();
@@ -907,6 +913,7 @@
         if (estado.prefs.metronomo) Player.metronomoLivre(this.bpm * this.fator, this.compasso, ctx.currentTime + Math.max(0.05, this.batida < this.inicio ? this.tempoDe(this.inicio) - agoraS() : 0.05));
       }
       this.atualizarTransporte();
+      this.aplicarFoco();
       requestAnimationFrame(this.loop);
     }
     atualizarMaos(dedos, proxima) {
@@ -950,6 +957,7 @@
       Player.metro && Player.metro.parar();
       if (this.modo === 'praticar' && this.sessaoInicio && !this.terminou) this.registrarParcial();
       this.atualizarTransporte();
+      this.aplicarFoco();
     }
     batidaEm(t) { return this.ancora.b + (t - this.ancora.t) * this.bps; }
     tempoDe(b) { return this.ancora.t + (b - this.ancora.b) / this.bps; }
@@ -1088,7 +1096,8 @@
       el.classList.remove('pisca'); void el.offsetWidth; el.classList.add('pisca');
       // voz: no máximo um aviso a cada 2,5 s
       const agora = performance.now();
-      if (estado.prefs.treinadorVoz !== false && agora - this.ultimoAviso > 2500 && ids.length) {
+      const outraVoz = Guia.ativo || !!Guia.atual || (Narr.audio && !Narr.audio.paused);
+      if (estado.prefs.treinadorVoz !== false && !outraVoz && agora - this.ultimoAviso > 2500 && ids.length) {
         this.ultimoAviso = agora;
         (async () => { for (const id of ids) { Guia.cancelado = false; Guia.pularPasso = false; await Guia.falar(id, (C.coach || {})[id.replace('coach-', '')] || ''); } })();
       }
@@ -1127,6 +1136,7 @@
     // ---- resultado
     finalizar() {
       this.tocando = false;
+      this.aplicarFoco();
       Player.metro && Player.metro.parar();
       const fimTs = performance.now();
       this.recs.forEach(r => { if (r.off == null) r.off = fimTs; });
@@ -1244,6 +1254,15 @@
       const agora = performance.now();
       for (const [m, v] of Midi.teclas) if (!marcas.has(m) || this.modo === 'ouvir') marcas.set(m, { cor: css('--press'), rotulo: estado.prefs.nomes ? NOMES[m % 12] : '', textoCor: '#10121a' });
       for (const [m, f] of this.flash) { if (f.ate < agora) { this.flash.delete(m); continue; } if (f.cor) marcas.set(m, { cor: f.cor, rotulo: NOMES[m % 12], textoCor: '#ffffff' }); }
+      // legenda das mãos (canto superior direito)
+      const temD = this.aula.notas.some(n => n.h === 'D'), temE = this.aula.notas.some(n => n.h === 'E');
+      if (temD || temE) {
+        ctx.font = `600 11px ${css('--font-mono')}`; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+        let lx = w - 10;
+        const item = (cor, txt) => { ctx.fillStyle = textoPalco; ctx.fillText(txt, lx, 14); lx -= ctx.measureText(txt).width + 8; ctx.fillStyle = cor; ctx.beginPath(); ctx.arc(lx - 4, 14, 5, 0, Math.PI * 2); ctx.fill(); lx -= 22; };
+        if (temE) item(corE, 'ESQUERDA');
+        if (temD) item(corD, 'DIREITA');
+      }
       // seções
       ctx.font = `600 12px ${css('--font-mono')}`; ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
       for (const s of this.secoes) {
@@ -1532,6 +1551,8 @@
           <label class="chk"><input type="checkbox" id="repetir" ${p.repetir ? 'checked' : ''}> Repetir</label>
           ${window.Partitura && window.Partitura.disponivel() && a.notas.length ? `<label class="chk"><input type="checkbox" id="partitura-chk" ${p.partitura ? 'checked' : ''}> Partitura</label>` : ''}
           <label class="chk" title="Explica, demonstra, entra em Praticar e avança sozinho"><input type="checkbox" id="fluxo-chk" ${p.fluxo !== false ? 'checked' : ''}> Automático</label>
+          <label class="chk" title="Avisos falados do treinador a cada erro (o texto continua aparecendo)"><input type="checkbox" id="voz-chk" ${p.treinadorVoz !== false ? 'checked' : ''}> Voz do treinador</label>
+          <label class="chk" title="Enquanto você toca, esconde o resto da tela e deixa só o teclado, as mãos e o treinador"><input type="checkbox" id="foco-chk" ${p.foco !== false ? 'checked' : ''}> Foco ao tocar</label>
         </div>
         <div class="palco"><canvas aria-label="Teclado animado: as notas descem até as teclas que você deve apertar"></canvas></div>
         <div class="treinador" id="treinador"><div class="tr-msg" id="tr-msg" aria-live="assertive">O treinador avisa na hora: tecla errada, nota atrasada ou apressada.</div><div class="tr-barras" id="tr-barras" aria-label="Últimas notas: altura da barra = quanto o tempo variou"></div></div>
@@ -1586,6 +1607,8 @@
     });
     $('#nomes').addEventListener('change', e => { p.nomes = e.target.checked; salvar(); pl.desenhar(); });
     $('#repetir').addEventListener('change', e => { p.repetir = e.target.checked; salvar(); });
+    const vozChk = $('#voz-chk'); if (vozChk) vozChk.addEventListener('change', e => { p.treinadorVoz = e.target.checked; salvar(); });
+    const focoChk = $('#foco-chk'); if (focoChk) focoChk.addEventListener('change', e => { p.foco = e.target.checked; salvar(); pl.aplicarFoco(); });
     const fluxoChk = $('#fluxo-chk');
     if (fluxoChk) fluxoChk.addEventListener('change', e => { p.fluxo = e.target.checked; salvar(); if (!p.fluxo) Fluxo.parar(); else Fluxo.quandoPuder(() => Fluxo.pratica(a, pl, opts.aoPassar)); });
     const partEl = $('#partitura');
