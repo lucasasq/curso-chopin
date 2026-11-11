@@ -745,8 +745,10 @@
     const p = aula.passa || {};
     const faltas = [];
     if (p.acertos != null && out.acertos < p.acertos) faltas.push(`notas certas ${out.acertos}% (meta ${p.acertos}%)`);
-    if (p.regularidade != null && (out.regularidade ?? 0) < p.regularidade) faltas.push(`regularidade ${out.regularidade ?? '—'}% (meta ${p.regularidade}%)`);
-    if (p.bpm != null && (out.bpm ?? 0) < p.bpm) faltas.push(`tempo ♩ = ${out.bpm ?? '—'} (meta ♩ = ${p.bpm})`);
+    // trecho curto demais para medir o tempo (menos de 3 intervalos): não conta contra o aluno
+    out.tempoMedido = out.regularidade != null;
+    if (p.regularidade != null && out.tempoMedido && out.regularidade < p.regularidade) faltas.push(`regularidade ${out.regularidade}% (meta ${p.regularidade}%)`);
+    if (p.bpm != null && out.tempoMedido && out.bpm < p.bpm) faltas.push(`tempo ♩ = ${out.bpm} (meta ♩ = ${p.bpm})`);
     if (p.buracosMax != null && (out.buracos ?? 0) > p.buracosMax) faltas.push(`${out.buracos} buracos no legato (máximo ${p.buracosMax})`);
     if (p.dinamica != null && (out.dinamica ?? 0) < p.dinamica) faltas.push(`dinâmica ${out.dinamica ?? 0}% (meta ${p.dinamica}%)`);
     if (p.equilibrio != null && (out.equilibrio ?? -100) < p.equilibrio) faltas.push(`melodia ${out.equilibrio == null ? '—' : out.equilibrio + '%'} mais forte que o acompanhamento (meta ${p.equilibrio}%)`);
@@ -797,6 +799,7 @@
       d.push(`Só ${r.pedal}% das trocas de pedal vieram logo depois do acorde novo. Mãos descem, pé sobe, pé desce: conte “um, e” em cada acorde.`);
     }
     if (aula.metricas.includes('pedal') && r.pedal == null) d.push('Não recebi o pedal pelo cabo: o site não conseguiu avaliar as trocas. Se o seu piano tem pedal, confira se ele envia MIDI (controle 64).');
+    if (r.tempoMedido === false && r.eventos <= 3) d.push('Trecho curto demais para medir o tempo (menos de três notas seguidas): a regularidade não entrou no veredito.');
     if (!d.length) d.push(r.passou ? 'Tudo dentro da meta. Na próxima, tente o mesmo com os olhos fechados nas últimas repetições.' : 'Continue praticando: os números vão subir.');
     return d;
   }
