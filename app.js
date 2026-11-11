@@ -1307,7 +1307,9 @@
   function rota() {
     const h = (location.hash || '#hoje').slice(1);
     let vista = 'curso', aulaId = null;
-    if (h === 'hoje' || h === '') vista = 'hoje';
+    const primeiraVez = !estado.sessoes.length && !estado.prefs.introVista;
+    if (h === 'introducao' || ((h === 'hoje' || h === '') && primeiraVez)) vista = 'introducao';
+    else if (h === 'hoje' || h === '') vista = 'hoje';
     else if (h.startsWith('aula-')) { aulaId = h.slice(5); vista = AULAS.has(aulaId) ? 'aula' : 'curso'; }
     else if (h === 'progresso') vista = 'progresso';
     else if (h === 'musicas' || h.startsWith('musica-')) vista = 'musicas';
@@ -1319,6 +1321,7 @@
     $$('.vista').forEach(v => { v.hidden = v.id !== 'vista-' + vista; if (v.hidden) v.innerHTML = ''; });
     $$('.nav a').forEach(a => { if (a.dataset.nav === vista) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); });
     $('#nav-aula').href = '#aula-' + (aulaId || proximaAula());
+    if (vista === 'introducao') renderIntroducao();
     if (vista === 'hoje') renderHoje();
     if (vista === 'curso') renderCurso();
     if (vista === 'aula') renderAula(aulaId);
@@ -1400,6 +1403,47 @@
         <h2>Fontes</h2>
         <ul class="fontes">${C.fontes.map(f => `<li>${f.url ? `<a href="${esc(f.url)}" target="_blank" rel="noopener">${esc(f.t)}</a>` : esc(f.t)}</li>`).join('')}</ul>
       </div>`;
+  }
+  function renderIntroducao() {
+    const el = $('#vista-introducao');
+    const I = C.introducao || {};
+    const mods = nv => C.modulos.filter(m => (m.nivel || 0) === nv.n);
+    el.innerHTML = `<div style="display:grid;gap:30px">
+      <div class="aula-cab">
+        <span class="rotulo">Introdução · piano em casa, pelo método de Chopin</span>
+        <h1>${esc(I.titulo || 'Introdução')}</h1>
+        <p class="texto">${esc(I.chegada || '')}</p>
+        ${I.narracao ? blocoNarracao('introducao', 'Ouça a introdução', I.narracao) : ''}
+        <div class="linha-botoes"><a class="btn primario" href="#hoje" id="intro-comecar">Começar a jornada de hoje →</a><a class="btn" href="#curso">Ver todos os módulos</a></div>
+      </div>
+      <div class="secao">
+        <h2>Onde você vai chegar, nível a nível</h2>
+        <div class="tabela-wrap"><table>
+          <thead><tr><th>Nível</th><th>Equivale a (ABRSM)</th><th>Royal Conservatory</th><th>Dificuldade Henle</th><th>Obras do nível</th></tr></thead>
+          <tbody>${(I.equivalencias || []).map(e => `<tr><td><b>${e.nivel} · ${esc(e.nome)}</b></td><td>${esc(e.abrsm)}</td><td>${esc(e.rcm)}</td><td class="num">${esc(e.henle)}</td><td style="white-space:normal;min-width:220px">${esc(e.obras)}</td></tr>`).join('')}</tbody>
+        </table></div>
+        <p class="aviso">ABRSM e Royal Conservatory são os dois sistemas de exames graduados mais usados no mundo; Henle é a escala de dificuldade da editora das edições urtext (1 fácil, 9 muito difícil). As equivalências são aproximadas, pelo repertório de cada nível.</p>
+      </div>
+      <div class="secao">
+        <h2>O que você vai aprender</h2>
+        <div class="principios">${(I.aprende || []).map(x => `<div><h3>${esc(x.t)}</h3><p>${esc(x.d)}</p></div>`).join('')}</div>
+      </div>
+      <div class="secao">
+        <h2>O caminho, módulo a módulo</h2>
+        <div class="niveis-prog">${(C.niveis || []).map(nv => `<div class="nivel-prog"><div class="cab"><b>Nível ${nv.n} · ${esc(nv.titulo)}</b><span class="mono">${esc(nv.semanas || '')}</span></div>
+          <p class="suave" style="font-size:.92rem">${esc(nv.descricao || '')}</p>
+          <ul class="aulas" style="margin-top:6px">${mods(nv).map(m => `<li><span class="plano"><span class="id">${m.n}</span><span class="t">${esc(m.titulo)}</span></span></li>`).join('')}</ul>
+          ${nv.meta ? `<p class="texto" style="font-size:.92rem"><b>Ao terminar:</b> ${esc(nv.meta)}</p>` : ''}</div>`).join('')}</div>
+      </div>
+      <div class="secao">
+        <h2>Como funciona</h2>
+        <ol class="aula-info" style="display:grid;gap:8px;padding-left:1.2em">${(I.como || []).map(x => `<li>${esc(x)}</li>`).join('')}</ol>
+        <p class="texto"><b>Quanto tempo leva:</b> ${esc(I.tempo || '')}</p>
+      </div>
+      <div class="linha-botoes"><a class="btn primario" href="#hoje" id="intro-comecar-2">Começar a jornada de hoje →</a></div>
+    </div>`;
+    const marcar = () => { estado.prefs.introVista = true; salvar(); };
+    $('#intro-comecar').addEventListener('click', marcar); $('#intro-comecar-2').addEventListener('click', marcar);
   }
   function moduloHTML(m) {
     const aulas = C.aulas.filter(a => a.modulo === m.n);
