@@ -26,7 +26,7 @@
   const estado = {
     sessoes: store.get('sessoes', []),
     status: store.get('status', {}),
-    prefs: Object.assign({ tempo: 1, tempoMusica: 0.6, metronomo: false, nomes: false, repetir: false, partitura: true }, store.get('prefs', {})),
+    prefs: Object.assign({ tempo: 1, tempoMusica: 0.6, metronomo: false, nomes: false, repetir: false, partitura: true, fluxo: true }, store.get('prefs', {})),
     musicas: store.get('musicas', []),
     jornada: store.get('jornada', null),
     niveisVistos: store.get('niveisVistos', [])
@@ -401,6 +401,100 @@
         <p class="legenda">${esc(a.guia[i].fala)}</p></div>
       <div class="linha-botoes"><button class="btn" type="button" data-guia="pular">Pular ›</button><button class="btn" type="button" data-guia="parar">Parar</button></div>`;
   }
+
+
+  /* ------------------------------------------------------------ fluxo automático: explica, guia, pratica, avança */
+  const rolar = (el, block = 'center') => { if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block }); };
+  const Fluxo = {
+    ativo: false, pendente: null, timer: null, cancelado: false,
+    ligado() { return estado.prefs.fluxo !== false; },
+    parar() {
+      this.cancelado = true; this.ativo = false; this.pendente = null;
+      if (this.timer) { clearInterval(this.timer); this.timer = null; }
+      Guia.parar(); if (Guia.atual) Guia.atual.parar();
+      const b = $('#fluxo-barra'); if (b) b.remove();
+    },
+    async falar(id, texto) {
+      Guia.cancelado = false; Guia.pularPasso = false; Guia.ativo = true;
+      try { await Guia.falar(id, texto); } finally { Guia.ativo = false; }
+      return !this.cancelado;
+    },
+    // começa quando o som estiver destravado; senão, espera o toque no cartão de som
+    quandoPuder(fn) {
+      if (!this.ligado()) return;
+      if (!Som.ligado && navigator.userActivation && navigator.userActivation.hasBeenActive) Som.iniciar();
+      if (Som.ligado) { fn(); return; }
+      this.pendente = fn;
+      const st = $('.status'); if (st) st.innerHTML = 'Toque em <b>Ligar o som</b> e a aula começa sozinha: explicação, demonstração e a sua vez.';
+    },
+    // aula prática: explicação (ou aula guiada) → praticar → resultado → avança ou repete
+    async pratica(a, pl, aoPassar) {
+      this.parar(); Narr.parar(); this.cancelado = false; this.ativo = true;
+      const raiz = pl.raiz;
+      rolar(raiz, 'start');
+      pl.atualizarStatus('Explicação: ouça e veja as teclas acesas.');
+      if (a.guia && a.guia.length) {
+        await rodarGuia(a, pl);
+      } else {
+        const ev = pl.eventos[0];
+        if (ev) pl.mostrarTeclas(ev.notas.filter(n => n.f).map(n => [n.m, n.f, n.h]));
+        rolar($('.palco', raiz));
+        await this.falar('aula-' + a.id, a.narracao);
+      }
+      if (this.cancelado || !this.ativo) return;
+      await espera(400);
+      if (this.cancelado) return;
+      // sua vez: entra em Praticar e dispara a contagem
+      const bPrat = $('[data-modo="praticar"]', raiz);
+      if (bPrat) { this.clicando = true; bPrat.click(); this.clicando = false; }
+      rolar($('.palco', raiz));
+      pl.atualizarStatus('<b>Sua vez.</b> Toque o exercício no piano; o site espera cada nota.');
+    },
+    // depois do resultado
+    async resultado(a, pl, r, opts) {
+      if (!this.ativo || this.cancelado) return;
+      rolar($('#resultado'));
+      await espera(300);
+      const passou = r.passou && !r.parcial;
+      const seg = passou ? 6 : 5;
+      const caixa = $('#resultado .resultado'); if (!caixa) return;
+      const barra = document.createElement('div');
+      barra.id = 'fluxo-barra'; barra.className = 'fluxo-barra';
+      const titulo = passou ? (opts.ultimo ? 'Jornada concluída' : 'Próxima etapa') : 'Tentar de novo';
+      barra.innerHTML = `<div class="fluxo-txt"><b>${titulo}</b> <span id="fluxo-quando">depois do feedback</span></div>
+        <div class="linha-botoes">
+          <button class="btn primario" type="button" data-fluxo="agora">${passou ? 'Agora →' : 'Tentar agora'}</button>
+          ${passou ? '<button class="btn" type="button" data-fluxo="repetir">Repetir esta</button>' : '<button class="btn" type="button" data-fluxo="ouvir">Ouvir o trecho</button>'}
+          <button class="btn" type="button" data-fluxo="parar">Parar o automático</button>
+        </div>`;
+      caixa.prepend(barra);
+      let restante = seg;
+      const avancar = () => {
+        if (this.timer) { clearInterval(this.timer); this.timer = null; }
+        barra.remove();
+        if (passou) { if (opts.aoPassar) opts.aoPassar(); }
+        else { pl.reiniciar(); $('#resultado').innerHTML = ''; const bPrat = $('[data-modo="praticar"]', pl.raiz); if (bPrat) { this.clicando = true; bPrat.click(); this.clicando = false; } rolar($('.palco', pl.raiz)); }
+      };
+      barra.addEventListener('click', e => {
+        const b = e.target.closest('[data-fluxo]'); if (!b) return;
+        if (b.dataset.fluxo === 'agora') avancar();
+        if (b.dataset.fluxo === 'repetir') { if (this.timer) clearInterval(this.timer); barra.remove(); pl.reiniciar(); $('#resultado').innerHTML = ''; this.pratica(a, pl, opts.aoPassar); }
+        if (b.dataset.fluxo === 'ouvir') { if (this.timer) clearInterval(this.timer); barra.remove(); const bO = $('[data-modo="ouvir"]', pl.raiz); if (bO) { this.clicando = true; bO.click(); this.clicando = false; } rolar($('.palco', pl.raiz)); this.ativo = false; }
+        if (b.dataset.fluxo === 'parar') { this.parar(); estado.prefs.fluxo = false; salvar(); const chk = $('#fluxo-chk'); if (chk) chk.checked = false; }
+      });
+      // espera o feedback falado terminar antes de contar
+      await (this.feedbackAtual || Promise.resolve());
+      if (this.cancelado || !barra.isConnected) return;
+      const q = $('#fluxo-quando'); if (q) q.innerHTML = `em <span class="mono" id="fluxo-seg">${seg}</span> s`;
+      this.timer = setInterval(() => {
+        restante--; const s = $('#fluxo-seg'); if (s) s.textContent = restante;
+        if (restante <= 0) avancar();
+      }, 1000);
+    }
+  };
+  document.addEventListener('som-ligado', () => { const f = Fluxo.pendente; Fluxo.pendente = null; if (f) setTimeout(f, 300); });
+  // o primeiro toque em qualquer lugar destrava o som e dispara o fluxo pendente
+  document.addEventListener('pointerdown', () => { if (Fluxo.pendente && !Som.ligado) Som.iniciar(); }, { capture: true, passive: true });
 
   const ICONE_PLAY = '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M4 2.5v11l9.5-5.5z"/></svg>';
   const ICONE_PAUSA = '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M3.5 2.5h3.2v11H3.5zm5.8 0h3.2v11H9.3z"/></svg>';
@@ -1121,7 +1215,7 @@
     else if (h.startsWith('aula-')) { aulaId = h.slice(5); vista = AULAS.has(aulaId) ? 'aula' : 'curso'; }
     else if (h === 'progresso') vista = 'progresso';
     else if (h === 'musicas' || h.startsWith('musica-')) vista = 'musicas';
-    Narr.parar(); Guia.parar();
+    Narr.parar(); Guia.parar(); Fluxo.parar();
     Jornada.ativa = vista === 'hoje';
     if (vista === 'aula' && Jornada.bloqueado()) { vista = 'hoje'; }
     if (playerAtual) { playerAtual.destruir(); playerAtual = null; }
@@ -1339,7 +1433,7 @@
       ${info}
       ${historicoAula(id)}
       ${navAulas}</div>`;
-    montarPlayer(a);
+    montarPlayer(a, { aoPassar: () => { if (prox && !Jornada.bloqueado()) location.hash = 'aula-' + prox; else location.hash = 'curso'; }, ultimo: !prox });
   }
 
   function figurasHTML(a) {
@@ -1372,6 +1466,7 @@
           <label class="chk"><input type="checkbox" id="nomes" ${p.nomes ? 'checked' : ''}> Nomes das notas</label>
           <label class="chk"><input type="checkbox" id="repetir" ${p.repetir ? 'checked' : ''}> Repetir</label>
           ${window.Partitura && window.Partitura.disponivel() && a.notas.length ? `<label class="chk"><input type="checkbox" id="partitura-chk" ${p.partitura ? 'checked' : ''}> Partitura</label>` : ''}
+          <label class="chk" title="Explica, demonstra, entra em Praticar e avança sozinho"><input type="checkbox" id="fluxo-chk" ${p.fluxo !== false ? 'checked' : ''}> Automático</label>
         </div>
         <div class="palco"><canvas aria-label="Teclado animado: as notas descem até as teclas que você deve apertar"></canvas></div>
         <div class="maos">${maoSVG('E')}<p class="legenda-mao" aria-live="polite"></p>${maoSVG('D')}</div>
@@ -1393,6 +1488,7 @@
     pl.atualizarTransporte();
     raiz.addEventListener('click', e => {
       const b = e.target.closest('button'); if (!b) return;
+      if (!Fluxo.clicando && Fluxo.ativo && (b.dataset.modo || b.dataset.acao || b.dataset.guia)) { const guiaRodando = Guia.ativo; Fluxo.parar(); if (guiaRodando && b.dataset.guia) { /* o botão da guia ainda age abaixo */ } }
       if (b.dataset.guia) {
         if (b.dataset.guia === 'iniciar' && !Guia.ativo) { Som.iniciar(); rodarGuia(a, pl); }
         if (b.dataset.guia === 'pular') Guia.pular();
@@ -1424,6 +1520,8 @@
     });
     $('#nomes').addEventListener('change', e => { p.nomes = e.target.checked; salvar(); pl.desenhar(); });
     $('#repetir').addEventListener('change', e => { p.repetir = e.target.checked; salvar(); });
+    const fluxoChk = $('#fluxo-chk');
+    if (fluxoChk) fluxoChk.addEventListener('change', e => { p.fluxo = e.target.checked; salvar(); if (!p.fluxo) Fluxo.parar(); else Fluxo.quandoPuder(() => Fluxo.pratica(a, pl, opts.aoPassar)); });
     const partEl = $('#partitura');
     if (partEl) {
       let larguraAnt = 0;
@@ -1433,7 +1531,8 @@
       const chk = $('#partitura-chk');
       if (chk) chk.addEventListener('change', e => { p.partitura = e.target.checked; salvar(); partEl.hidden = !p.partitura; if (p.partitura) { larguraAnt = 0; pl.desenharPartitura(); } });
     }
-    raiz.addEventListener('resultado', ev => { mostrarResultado(a, ev.detail); if (opts.aoResultado) opts.aoResultado(ev.detail); });
+    raiz.addEventListener('resultado', ev => { mostrarResultado(a, ev.detail); if (opts.aoResultado) opts.aoResultado(ev.detail); Fluxo.resultado(a, pl, ev.detail.r, opts); });
+    if (opts.auto !== false && a.tipo === 'pratica') Fluxo.quandoPuder(() => Fluxo.pratica(a, pl, opts.aoPassar));
     return pl;
   }
 
@@ -1470,13 +1569,7 @@
     if (estado.prefs.feedbackFalado === false) return;
     const cat = r.passou ? (r.parcial ? 'parcial' : 'passou') : (['acertos', 'regularidade', 'bpm', 'buracos', 'dinamica', 'equilibrio', 'pedal'].find(k => r.faltas.some(f => f.startsWith({ acertos: 'notas certas', regularidade: 'regularidade', bpm: 'tempo', buracos: 'buracos', dinamica: 'dinâmica', equilibrio: 'melodia', pedal: 'trocas de pedal' }[k]))) || 'acertos');
     Narr.parar();
-    const id = 'feedback-' + cat;
-    Narr.verificar(id);
-    const tocar = () => {
-      if (Narr.temArquivo.get(id)) { Narr.audio = new Audio('audio/' + id + '.m4a'); Narr.audio.play().catch(() => {}); }
-      else if (C.feedback && C.feedback[cat]) Narr.falar(C.feedback[cat], () => {});
-    };
-    if (Narr.temArquivo.get(id) == null) setTimeout(tocar, 400); else tocar();
+    Fluxo.feedbackAtual = Fluxo.falar('feedback-' + cat, (C.feedback && C.feedback[cat]) || '').catch(() => {});
   }
 
   function historicoAula(id) {
@@ -2355,6 +2448,8 @@
         $('#hoje-fiz').disabled = true; $('#hoje-fiz').textContent = 'Feito'; liberar(); renderHoje();
       });
       ligarRodape();
+      if (!feito) { fluxoEtapaSimples('aula-' + a.id, a.narracao, p.min); ligarCronometro(j.passo, p.min, () => { const b = $('#hoje-fiz'); if (b && !b.disabled && Fluxo.ligado()) b.click(); }); }
+      else if (Fluxo.ligado()) { const b = $('#hoje-continuar'); if (b) setTimeout(() => b.click(), 1500); }
       return;
     }
     if (p.tipo === 'ouvir') {
@@ -2370,6 +2465,8 @@
         $('#hoje-fiz').disabled = true; $('#hoje-fiz').textContent = 'Feito'; liberar(); renderHoje();
       });
       ligarRodape();
+      if (!feito) { fluxoEtapaSimples(p.modulo ? 'modulo-' + p.modulo.n : null, p.modulo ? p.modulo.narracao : '', p.min); ligarCronometro(j.passo, p.min, () => { const b = $('#hoje-fiz'); if (b && !b.disabled && Fluxo.ligado()) b.click(); }); }
+      else if (Fluxo.ligado()) { const b = $('#hoje-continuar'); if (b) setTimeout(() => b.click(), 1500); }
       return;
     }
     // aula prática ou peça
@@ -2389,7 +2486,7 @@
           ${htmlPlayer(a)}<div id="resultado"></div>
           <div class="criterio"><span class="rotulo">Para passar</span><p>${esc(a.criterio)}</p></div>
           ${rodape(feito, 'Repetir a etapa')}</div>`;
-        montarPlayer(a, { aoResultado: () => liberar() });
+        montarPlayer(a, { aoResultado: () => liberar(), aoPassar: () => $('#hoje-continuar') && $('#hoje-continuar').click(), ultimo: j.passo + 1 >= plano.length });
         $('#hoje-repetir').addEventListener('click', () => { if (playerAtual) { playerAtual.reiniciar(); $('#resultado').innerHTML = ''; } });
         ligarRodape();
       }).catch(err => { el.innerHTML = `<div style="display:grid;gap:22px">${barra}${cabPasso}<p class="aviso">Não consegui carregar a peça (${esc(err.message)}).</p>${rodape(true, null)}</div>`; ligarRodape(); });
@@ -2404,9 +2501,18 @@
       <div class="aula-info"><div><h3>Passo a passo</h3><ol>${a.passos.map(x => `<li>${esc(x)}</li>`).join('')}</ol></div>
         <div><h3>O que observar</h3><ul>${a.foco.map(x => `<li>${esc(x)}</li>`).join('')}</ul><div class="criterio"><span class="rotulo">Para passar</span><p>${esc(a.criterio)}</p></div></div></div>
       ${rodape(feito, 'Repetir o exercício')}</div>`;
-    montarPlayer(a, { aoResultado: () => liberar() });
+    montarPlayer(a, { aoResultado: () => liberar(), aoPassar: () => $('#hoje-continuar') && $('#hoje-continuar').click(), ultimo: j.passo + 1 >= plano.length });
     $('#hoje-repetir').addEventListener('click', () => { if (playerAtual) { playerAtual.reiniciar(); $('#resultado').innerHTML = ''; } });
     ligarRodape();
+  }
+  // etapas sem player (corpo, leitura-guia, ouvir): explicação automática e avanço quando o tempo da etapa se cumpre
+  function fluxoEtapaSimples(idNarr, texto, minutos) {
+    if (!Fluxo.ligado()) return;
+    Fluxo.quandoPuder(async () => {
+      Fluxo.parar(); Fluxo.cancelado = false; Fluxo.ativo = true;
+      rolar($('.figuras') || $('.peca-box') || $('.guia'), 'start');
+      if (idNarr) await Fluxo.falar(idNarr, texto);
+    });
   }
 
   /* ------------------------------------------------------------ início */
