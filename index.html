@@ -291,6 +291,13 @@ p { margin: 0; }
 .figura { margin: 0; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; display: grid; }
 .figura img { width: 100%; height: auto; display: block; border: 0; border-radius: 0; background: #12141B; }
 .figura img.ilustracao { background: #FBF8F1; border-bottom: 1px solid var(--line); }
+.anim { position: relative; width: 100%; aspect-ratio: 1 / 1; background: #FBF8F1; overflow: hidden; }
+.anim img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; animation: anim-quadro 6s infinite; animation-delay: calc(var(--k) * 2s); }
+@keyframes anim-quadro { 0% { opacity: 0; } 8% { opacity: 1; } 33% { opacity: 1; } 41% { opacity: 0; } 100% { opacity: 0; } }
+.anim img:first-child { animation-name: anim-quadro-1; }
+@keyframes anim-quadro-1 { 0% { opacity: 1; } 33% { opacity: 1; } 41% { opacity: 0; } 92% { opacity: 0; } 100% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .anim img { animation: none; opacity: 0; } .anim img:last-child { opacity: 1; } }
+.figura-solta { max-width: 360px; width: 100%; border-radius: 8px; border: 1px solid var(--line); background: #FBF8F1; }
 .figura figcaption { padding: 10px 14px 12px; display: grid; gap: 3px; font-size: 0.9rem; color: var(--muted); }
 .figura figcaption b { color: var(--ink); }
 
@@ -491,10 +498,10 @@ h2 { text-wrap: balance; }
   </div>
 </main>
 
-<script src="vendor/supabase.js?v=202611111428"></script>
-<script src="config.js?v=202611111428"></script>
-<script src="dados.js?v=202611111428"></script>
-<script src="app.js?v=202611111428"></script>
+<script src="vendor/supabase.js?v=202611111444"></script>
+<script src="config.js?v=202611111444"></script>
+<script src="dados.js?v=202611111444"></script>
+<script src="app.js?v=202611111444"></script>
 
 </body>
 </html>

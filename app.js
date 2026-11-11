@@ -1345,7 +1345,7 @@
     if (!a.figuras || !a.figuras.length) return '';
     return `<div class="figuras">${a.figuras.map(f => `<figure class="figura">
         ${f.img ? `<img class="ilustracao" src="img/${esc(f.img)}" alt="${esc(f.titulo)}, ilustração" loading="lazy" onerror="this.remove()">` : ''}
-        <img src="img/${esc(f.arq)}" alt="${esc(f.titulo)}, animação" loading="lazy">
+        ${f.anim ? `<div class="anim" aria-label="${esc(f.titulo)}, animação">${[1, 2, 3].map(k => `<img src="img/${esc(f.anim)}-${k}.jpg" alt="" loading="lazy" style="--k:${k - 1}" onerror="this.parentElement.remove()">`).join('')}</div>` : ''}
         <figcaption><b>${esc(f.titulo)}</b><span>${esc(f.legenda)}</span></figcaption>
       </figure>`).join('')}</div>`;
   }
@@ -2298,7 +2298,7 @@
       const feito = Jornada.feito(j.passo);
       const o = p.modulo && p.modulo.ouvir;
       el.innerHTML = `<div style="display:grid;gap:22px">${barra}${cabPasso}
-        <div class="peca-box"><div class="peca-info"><span class="rotulo">Para ouvir e cantar junto</span><h3 class="peca-titulo">${esc(o ? o.rotulo : 'A gravação do módulo')}</h3>
+        <div class="peca-box"><img class="ilustracao figura-solta" src="img/ouvir.jpg" alt="Ouvir e cantar" loading="lazy" onerror="this.remove()"><div class="peca-info"><span class="rotulo">Para ouvir e cantar junto</span><h3 class="peca-titulo">${esc(o ? o.rotulo : 'A gravação do módulo')}</h3>
           <p class="suave">Chopin mandava os alunos ouvirem cantores. Ouça cinco minutos e cante a melodia junto, mesmo baixinho: é a sua frase que vai nascer disso.</p></div>
           <div class="linha-botoes">${o ? `<a class="btn primario" href="${esc(o.url)}" target="_blank" rel="noopener">Abrir a gravação</a>` : ''}<button class="btn" type="button" id="hoje-fiz" ${feito ? 'disabled' : ''}>${feito ? 'Feito' : 'Ouvi e cantei'}</button></div></div>
         ${rodape(feito, null)}</div>`;
