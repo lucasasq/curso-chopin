@@ -9,6 +9,10 @@
 <body>
 <title>Curso Chopin</title>
 <meta name="claude:viewport-fit-sides" content="cover">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#34418F">
+<link rel="apple-touch-icon" href="img/icone-192.png">
+<meta name="apple-mobile-web-app-title" content="Curso Chopin">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@0,6..96,500;0,6..96,700;1,6..96,500&family=IBM+Plex+Mono:wght@400;500&family=Instrument+Sans:wght@400;500;600&display=swap">
@@ -245,6 +249,11 @@ p { margin: 0; }
 .secoes-chips { display: flex; gap: 6px; flex-wrap: wrap; }
 .secoes-chips button { border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 4px 12px; font-size: 0.85rem; min-height: 34px; }
 .status { font-size: 0.95rem; color: var(--muted); min-height: 1.5em; }
+.player.leitura .palco, .player.leitura .maos { display: none; }
+.leitura-aviso { border-left: 3px solid var(--accent); padding-left: 12px; }
+.abertura-fig { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; display: grid; }
+.abertura-fig img { width: 100%; height: auto; display: block; background: #FBF8F1; }
+.abertura-fig figcaption { padding: 10px 14px 12px; font-size: 0.9rem; color: var(--muted); }
 .partitura { background: #FBF8F1; border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 10px; overflow-x: auto; }
 .partitura svg { display: block; max-width: 100%; height: auto; }
 .partitura[hidden] { display: none !important; }
@@ -511,12 +520,12 @@ h2 { text-wrap: balance; }
   </div>
 </main>
 
-<script src="vendor/vexflow.js?v=202611111505"></script>
-<script src="partitura.js?v=202611111505"></script>
-<script src="vendor/supabase.js?v=202611111505"></script>
-<script src="config.js?v=202611111505"></script>
-<script src="dados.js?v=202611111505"></script>
-<script src="app.js?v=202611111505"></script>
+<script src="vendor/vexflow.js?v=202611111520"></script>
+<script src="partitura.js?v=202611111520"></script>
+<script src="vendor/supabase.js?v=202611111520"></script>
+<script src="config.js?v=202611111520"></script>
+<script src="dados.js?v=202611111520"></script>
+<script src="app.js?v=202611111520"></script>
 
 </body>
 </html>

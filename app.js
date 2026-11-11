@@ -999,7 +999,7 @@
       if (this.terminou && this.resultado) { st.innerHTML = this.resultado.r.passou ? '<b>Passou.</b> Veja o relatório abaixo.' : 'Exercício terminado. Veja o relatório abaixo.'; return; }
       const ev = this.eventos[this.idx];
       if (!ev) { st.textContent = ''; return; }
-      const alvo = ev.notas.map(n => `<b>${esc(rotuloNota(n))}</b> (${n.h === 'D' ? 'MD' : 'ME'}${n.f ? ' ' + n.f : ''})`).join(' + ');
+      const alvo = this.aula.leitura ? '<b>a nota marcada na partitura</b>' : ev.notas.map(n => `<b>${esc(rotuloNota(n))}</b> (${n.h === 'D' ? 'MD' : 'ME'}${n.f ? ' ' + n.f : ''})`).join(' + ');
       const conectado = Midi.estado === 'conectado';
       st.innerHTML = (this.tocando ? 'Esperando: ' : 'Primeira nota: ') + alvo + (conectado ? '' : ' · <span class="suave">sem piano conectado: toque nas teclas da tela</span>')
         + '<br><span class="suave">No modo Praticar o site não toca as notas: o som vem do seu piano. Para ouvir a música, use Ouvir.</span>';
@@ -1162,9 +1162,9 @@
             <a class="btn" href="#progresso">Ver progresso</a>
           </div>
         </div>
-        <figure class="posicao" style="margin:0">
-          <canvas id="cv-posicao" aria-label="Teclado mostrando a posição de Chopin: mão esquerda em Fá, Sol bemol, Lá bemol, Si bemol, Dó; mão direita em Mi, Fá sustenido, Sol sustenido, Lá sustenido, Si"></canvas>
-          <p>A posição de Chopin. Direita: Mi, Fá#, Sol#, Lá#, Si (dedos 1 a 5). Esquerda, em espelho: Dó, Si♭, Lá♭, Sol♭, Fá.</p>
+        <figure class="abertura-fig" style="margin:0">
+          <img src="img/cantar.jpg" alt="Pianista ao piano cantando a melodia enquanto toca" loading="eager" onerror="this.parentElement.remove()">
+          <figcaption>“É preciso cantar se quiser tocar.” A posição de Chopin: direita em Mi, Fá#, Sol#, Lá#, Si; esquerda, em espelho, em Dó, Si♭, Lá♭, Sol♭, Fá.</figcaption>
         </figure>
       </div>
 
@@ -1210,7 +1210,6 @@
         <h2>Fontes</h2>
         <ul class="fontes">${C.fontes.map(f => `<li>${f.url ? `<a href="${esc(f.url)}" target="_blank" rel="noopener">${esc(f.t)}</a>` : esc(f.t)}</li>`).join('')}</ul>
       </div>`;
-    desenharPosicao();
   }
   function moduloHTML(m) {
     const aulas = C.aulas.filter(a => a.modulo === m.n);
@@ -1354,7 +1353,8 @@
   function htmlPlayer(a) {
     const p = estado.prefs, chave = a.chaveTempo || 'tempo', tv = p[chave] ?? 1;
     const maosOp = a.maos === 'DE' || a.maos === 'D,E';
-    return `<div class="player" id="player">
+    return `<div class="player ${a.leitura ? 'leitura' : ''}" id="player">
+        ${a.leitura ? '<p class="aviso leitura-aviso">Leitura à primeira vista: o teclado animado fica escondido. Leia a partitura e toque. Em <b>Ouvir</b> você confere o trecho depois de tentar.</p>' : ''}
         ${a.guia ? `<div class="guia-barra" id="guia-barra"><button class="btn primario" type="button" data-guia="iniciar">▶ Aula guiada</button>
           <span class="aviso">A narração explica cada passo e o teclado mostra junto: teclas acesas com os dedos e trechos tocados.</span></div>` : ''}
         <div class="controles">
@@ -2412,6 +2412,7 @@
   /* ------------------------------------------------------------ início */
   window.__curso = { avaliar, Midi, Nuvem, estado, lerMidi, planoMusica, Guia, Jornada, get player() { return playerAtual; } };
   if ('speechSynthesis' in window) { try { speechSynthesis.getVoices(); speechSynthesis.onvoiceschanged = () => {}; } catch (e) { /* nada */ } }
+  if ('serviceWorker' in navigator && location.protocol === 'https:') { try { navigator.serviceWorker.register('sw.js').catch(() => {}); } catch (e) { /* nada */ } }
   Midi.iniciar(false);
   Nuvem.iniciar();
   rota();
