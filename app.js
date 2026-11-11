@@ -13,6 +13,7 @@
   const NOMES = ['Dó', 'Dó#', 'Ré', 'Ré#', 'Mi', 'Fá', 'Fá#', 'Sol', 'Sol#', 'Lá', 'Lá#', 'Si'];
   const nomeMidi = m => NOMES[m % 12] + (Math.floor(m / 12) - 1);
   const idTexto = id => id.replace('-', '.');
+  let rotuloAula = id => 'aula ' + idTexto(id); // redefinido na seção de músicas
   const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 
   /* ------------------------------------------------------------ armazenamento */
@@ -23,9 +24,10 @@
   const estado = {
     sessoes: store.get('sessoes', []),
     status: store.get('status', {}),
-    prefs: Object.assign({ tempo: 1, metronomo: false, nomes: false, repetir: false }, store.get('prefs', {}))
+    prefs: Object.assign({ tempo: 1, tempoMusica: 0.6, metronomo: false, nomes: false, repetir: false }, store.get('prefs', {})),
+    musicas: store.get('musicas', [])
   };
-  const salvar = () => { store.set('sessoes', estado.sessoes); store.set('status', estado.status); store.set('prefs', estado.prefs); };
+  const salvar = () => { store.set('sessoes', estado.sessoes); store.set('status', estado.status); store.set('prefs', estado.prefs); store.set('musicas', estado.musicas); };
   const hojeStr = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
   function statusAula(id) {
@@ -82,6 +84,8 @@
       if (/signups? not allowed|signup is disabled/i.test(m)) return 'Criar contas está desligado no Supabase. Use "Entrar" com a conta que você já criou.';
       if (/password should be|weak password|at least/i.test(m)) return 'A senha precisa ter pelo menos 6 caracteres.';
       if (/rate limit|too many|seconds/i.test(m)) return 'Muitas tentativas seguidas. Espere um minuto e tente de novo.';
+      if (/musicas/i.test(m) && /does not exist|schema cache|relation|not find/i.test(m))
+        return 'As aulas estão salvas na nuvem. Para guardar também as músicas, rode o arquivo ferramentas/supabase-musicas.sql no SQL Editor do Supabase e toque em Sincronizar agora.';
       if (/fetch|network|load failed|offline/i.test(m) || !navigator.onLine)
         return 'Sem conexão com a nuvem agora. Seus dados continuam salvos neste aparelho e sobem quando ela voltar. Se isso durar mais de um dia, abra o painel do Supabase: projetos gratuitos parados por uma semana são pausados e precisam ser restaurados lá.';
       return 'A nuvem respondeu com um erro: ' + m;
@@ -100,6 +104,29 @@
       if (!data.session) throw new Error('CONFIRMACAO_LIGADA');
       this.usuario = data.user; this.estado = 'ligada';
       await this.sincronizar(true);
+    },
+    async sincronizarMusicas(uid) {
+      const { data, error } = await this.cli.from('musicas').select('id,dados,atualizado_em');
+      if (error) throw error;
+      let mudou = false;
+      (data || []).forEach(r => {
+        const local = estado.musicas.find(x => x.id === r.id);
+        const remota = Date.parse(r.atualizado_em) || 0, loc = local ? (Date.parse(local.atualizado_em) || 0) : -1;
+        if (!local || (remota > loc && local.sync !== false) || (remota > loc + 1000)) {
+          const nova = Object.assign({}, r.dados, { sync: true });
+          if (local) Object.assign(local, nova); else estado.musicas.push(nova);
+          mudou = true;
+        }
+      });
+      const pend = estado.musicas.filter(x => x.sync === false);
+      if (pend.length) {
+        const linhas = pend.map(x => { const d = Object.assign({}, x); delete d.sync; return { user_id: uid, id: x.id, titulo: x.titulo, dados: d, removida: !!x.removida, atualizado_em: x.atualizado_em }; });
+        const { error: e2 } = await this.cli.from('musicas').upsert(linhas, { onConflict: 'user_id,id' });
+        if (e2) throw e2;
+        pend.forEach(x => { x.sync = true; });
+        mudou = true;
+      }
+      if (mudou) { cachePlanos.clear(); salvar(); document.dispatchEvent(new CustomEvent('musicas-mudaram')); }
     },
     async sair() { await this.cli.auth.signOut(); this.usuario = null; this.estado = 'fora'; this.avisar(); },
     async sincronizar(baixarTudo) {
@@ -138,6 +165,8 @@
         if (e3) throw e3;
         this.ultima = new Date().toISOString(); store.set('nuvemUltima', this.ultima);
         this.erro = ''; this.estado = 'ligada';
+        try { await this.sincronizarMusicas(uid); }
+        catch (e) { this.erro = this.traduzir(e); this.estado = 'erro'; }
       } catch (e) {
         this.erro = this.traduzir(e); this.estado = 'erro';
       } finally {
@@ -553,7 +582,7 @@
     // ---- controle
     definirModo(m) { this.parar(); this.modo = m; this.reiniciar(); }
     definirMaos(h) { this.parar(); this.maos = h; this.prepararNotas(); this.batida = this.inicio - 0.4; this.desenhar(); this.atualizarStatus(); }
-    get fator() { return estado.prefs.tempo; }
+    get fator() { return estado.prefs[this.aula.chaveTempo || 'tempo'] ?? 1; }
     get bps() { return this.bpm * this.fator / 60; }
     reiniciar() { this.parar(); this.prepararNotas(); this.batida = this.inicio - 0.4; this.resultado = null; this.desenhar(); this.atualizarStatus(); this.atualizarTransporte(); }
     irPara(t) {
@@ -736,11 +765,11 @@
     atualizarStatus(msg) {
       const st = $('.status', this.raiz); if (!st) return;
       if (msg) { st.textContent = msg; return; }
-      if (this.modo === 'ouvir') { st.innerHTML = 'Modo <b>Ouvir</b>: o site toca o exercício. Observe os dedos e cante junto.'; return; }
+      if (this.modo === 'ouvir') { st.innerHTML = this.aula.notas.some(n => n.f) ? 'Modo <b>Ouvir</b>: o site toca o exercício. Observe os dedos e cante junto.' : 'Modo <b>Ouvir</b>: o site toca o trecho. Observe as teclas e cante a melodia junto.'; return; }
       if (this.terminou && this.resultado) { st.innerHTML = this.resultado.r.passou ? '<b>Passou.</b> Veja o relatório abaixo.' : 'Exercício terminado. Veja o relatório abaixo.'; return; }
       const ev = this.eventos[this.idx];
       if (!ev) { st.textContent = ''; return; }
-      const alvo = ev.notas.map(n => `<b>${esc(n.n)}</b> (${n.h === 'D' ? 'MD' : 'ME'} ${n.f})`).join(' + ');
+      const alvo = ev.notas.map(n => `<b>${esc(n.n)}</b> (${n.h === 'D' ? 'MD' : 'ME'}${n.f ? ' ' + n.f : ''})`).join(' + ');
       const conectado = Midi.estado === 'conectado';
       st.innerHTML = (this.tocando ? 'Esperando: ' : 'Primeira nota: ') + alvo + (conectado ? '' : ' · <span class="suave">sem piano conectado: toque nas teclas da tela</span>');
     }
@@ -800,19 +829,19 @@
         ctx.globalAlpha = fora ? 0.3 : 1;
         if (base - topo > 18 && ww > 12) {
           ctx.fillStyle = '#10121a';
-          ctx.font = `700 ${clamp(ww * 0.55, 10, 16)}px ${css('--font-mono')}`;
           ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-          ctx.fillText(String(n.f), x + ww / 2, base - 10);
-          if (estado.prefs.nomes && base - topo > 40) {
+          if (n.f) { ctx.font = `700 ${clamp(ww * 0.55, 10, 16)}px ${css('--font-mono')}`; ctx.fillText(String(n.f), x + ww / 2, base - 10); }
+          else { ctx.font = `700 ${clamp(ww * 0.34, 8, 12)}px ${css('--font-body')}`; ctx.fillText(n.n, x + ww / 2, base - 10); }
+          if (n.f && estado.prefs.nomes && base - topo > 40) {
             ctx.font = `600 ${clamp(ww * 0.3, 9, 12)}px ${css('--font-body')}`;
             ctx.fillText(n.n, x + ww / 2, base - 28);
           }
         }
         ctx.globalAlpha = 1;
         // tecla acesa enquanto a nota soa (modo ouvir) ou nota esperada (praticar)
-        if (!fora && this.modo === 'ouvir' && this.batida >= n.t && this.batida < n.t + n.d) marcas.set(n.m, { cor, rotulo: String(n.f), textoCor: '#10121a' });
+        if (!fora && this.modo === 'ouvir' && this.batida >= n.t && this.batida < n.t + n.d) marcas.set(n.m, { cor, rotulo: n.f ? String(n.f) : n.n, textoCor: '#10121a' });
       }
-      if (evAtual) for (const n of evAtual.notas) if (evAtual.pendentes.has(n.m)) marcas.set(n.m, { cor: (n.h === 'D' ? corD : corE), contorno: '#ffffff', rotulo: String(n.f), textoCor: '#10121a' });
+      if (evAtual) for (const n of evAtual.notas) if (evAtual.pendentes.has(n.m)) marcas.set(n.m, { cor: (n.h === 'D' ? corD : corE), contorno: '#ffffff', rotulo: n.f ? String(n.f) : n.n, textoCor: '#10121a' });
       const agora = performance.now();
       for (const [m, v] of Midi.teclas) if (!marcas.has(m) || this.modo === 'ouvir') marcas.set(m, { cor: css('--press'), rotulo: estado.prefs.nomes ? NOMES[m % 12] : '', textoCor: '#10121a' });
       for (const [m, f] of this.flash) { if (f.ate < agora) { this.flash.delete(m); continue; } if (f.cor) marcas.set(m, { cor: f.cor, rotulo: NOMES[m % 12], textoCor: '#ffffff' }); }
@@ -850,6 +879,7 @@
     let vista = 'curso', aulaId = null;
     if (h.startsWith('aula-')) { aulaId = h.slice(5); vista = AULAS.has(aulaId) ? 'aula' : 'curso'; }
     else if (h === 'progresso') vista = 'progresso';
+    else if (h === 'musicas' || h.startsWith('musica-')) vista = 'musicas';
     Narr.parar();
     if (playerAtual) { playerAtual.destruir(); playerAtual = null; }
     $$('.vista').forEach(v => { v.hidden = v.id !== 'vista-' + vista; });
@@ -858,6 +888,7 @@
     if (vista === 'curso') renderCurso();
     if (vista === 'aula') renderAula(aulaId);
     if (vista === 'progresso') renderProgresso();
+    if (vista === 'musicas') { if (h.startsWith('musica-')) renderMusica(h.slice(7)); else renderMusicas(); }
     window.scrollTo(0, 0);
   }
   window.addEventListener('hashchange', rota);
@@ -1017,10 +1048,20 @@
       return;
     }
 
-    const p = estado.prefs;
     el.innerHTML = `<div style="display:grid;gap:22px">${cab}
       ${blocoNarracao('aula-' + id, 'Explicação da aula', a.narracao)}
-      <div class="player" id="player">
+      ${htmlPlayer(a)}
+      <div id="resultado"></div>
+      ${info}
+      ${historicoAula(id)}
+      ${navAulas}</div>`;
+    montarPlayer(a);
+  }
+
+  function htmlPlayer(a) {
+    const p = estado.prefs, chave = a.chaveTempo || 'tempo', tv = p[chave] ?? 1;
+    const maosOp = a.maos === 'DE' || a.maos === 'D,E';
+    return `<div class="player" id="player">
         <div class="controles">
           <div class="seg" role="group" aria-label="Modo">
             <button type="button" data-modo="ouvir" aria-pressed="true">Ouvir</button>
@@ -1031,12 +1072,12 @@
             <button type="button" data-maos="D" aria-pressed="false">Direita</button>
             <button type="button" data-maos="E" aria-pressed="false">Esquerda</button>
           </div>` : ''}
-          <label class="campo" for="tempo">Tempo <input id="tempo" type="range" min="0.5" max="1.25" step="0.05" value="${p.tempo}"> <b id="tempo-txt">♩ = ${Math.round(a.bpm * p.tempo)}</b></label>
+          <label class="campo" for="tempo">Tempo <input id="tempo" type="range" min="${a.chaveTempo ? 0.3 : 0.5}" max="1.25" step="0.05" value="${tv}"> <b id="tempo-txt">♩ = ${Math.round(a.bpm * tv)}</b></label>
           <label class="chk"><input type="checkbox" id="metronomo" ${p.metronomo ? 'checked' : ''}> Metrônomo</label>
           <label class="chk"><input type="checkbox" id="nomes" ${p.nomes ? 'checked' : ''}> Nomes das notas</label>
           <label class="chk"><input type="checkbox" id="repetir" ${p.repetir ? 'checked' : ''}> Repetir</label>
         </div>
-        <div class="palco"><canvas aria-label="Teclado animado: as notas descem até as teclas, com o número do dedo"></canvas></div>
+        <div class="palco"><canvas aria-label="Teclado animado: as notas descem até as teclas que você deve apertar"></canvas></div>
         <div class="transporte">
           <button class="btn primario tocar" type="button" data-acao="tocar"></button>
           <button class="btn" type="button" data-acao="reiniciar">Do início</button>
@@ -1044,12 +1085,11 @@
           ${a.secoes.length ? `<div class="secoes-chips">${a.secoes.map(s => `<button type="button" data-ir="${s.t}">${esc(s.rotulo)}</button>`).join('')}</div>` : ''}
         </div>
         <p class="status" aria-live="polite"></p>
-      </div>
-      <div id="resultado"></div>
-      ${info}
-      ${historicoAula(id)}
-      ${navAulas}</div>`;
+      </div>`;
+  }
 
+  function montarPlayer(a, opts = {}) {
+    const p = estado.prefs, chave = a.chaveTempo || 'tempo';
     const raiz = $('#player');
     const pl = playerAtual = new Player(raiz, a);
     pl.atualizarTransporte();
@@ -1066,8 +1106,8 @@
       if (b.dataset.ir != null) pl.irPara(+b.dataset.ir);
     });
     $('#tempo').addEventListener('input', e => {
-      p.tempo = +e.target.value; salvar();
-      $('#tempo-txt').textContent = `♩ = ${Math.round(a.bpm * p.tempo)}`;
+      p[chave] = +e.target.value; salvar();
+      $('#tempo-txt').textContent = `♩ = ${Math.round(a.bpm * p[chave])}`;
       pl.reancorar();
     });
     $('#metronomo').addEventListener('change', e => {
@@ -1076,7 +1116,8 @@
     });
     $('#nomes').addEventListener('change', e => { p.nomes = e.target.checked; salvar(); pl.desenhar(); });
     $('#repetir').addEventListener('change', e => { p.repetir = e.target.checked; salvar(); });
-    raiz.addEventListener('resultado', ev => mostrarResultado(a, ev.detail));
+    raiz.addEventListener('resultado', ev => { mostrarResultado(a, ev.detail); if (opts.aoResultado) opts.aoResultado(ev.detail); });
+    return pl;
   }
 
   function nivel(v, meta) {
@@ -1097,7 +1138,7 @@
       return `<div class="linha ${h}"><span>${h === 'D' ? 'Mão direita' : 'Mão esquerda'}</span>${vs.map((v, k) => `<div class="col"><i style="height:${v == null ? 0 : Math.round(8 + 52 * v / 127)}px"></i>${v == null ? '—' : v}<span>dedo ${k + 1}</span></div>`).join('')}</div>`;
     }).join('');
     $('#resultado').innerHTML = `<div class="resultado" data-passou="${r.passou}">
-      <div class="veredito"><span class="selo">${r.passou ? 'Passou' : 'Ainda não'}</span><h3>${r.passou ? (r.parcial ? 'Trecho dentro da meta. Para concluir a aula, toque do início ao fim.' : 'Aula concluída. Pode seguir para a próxima.') : 'Falta: ' + esc(r.faltas.join(' · '))}</h3></div>
+      <div class="veredito"><span class="selo">${r.passou ? 'Passou' : 'Ainda não'}</span><h3>${r.passou ? (r.parcial ? 'Trecho dentro da meta. Para concluir a aula, toque do início ao fim.' : (a.textoPassou || 'Aula concluída. Pode seguir para a próxima.')) : 'Falta: ' + esc(r.faltas.join(' · '))}</h3></div>
       <div class="metricas">${met.join('')}</div>
       ${linhas ? `<div class="dedos"><span class="rotulo">Força média por dedo (0 a 127)</span>${linhas}</div>` : ''}
       <div><span class="rotulo">O que fazer agora</span><ul class="dicas">${ds.map(d => `<li>${esc(d)}</li>`).join('')}</ul></div>
@@ -1130,6 +1171,7 @@
       `Últimos 7 dias: ${dias.size} dia(s) de prática, ${min} min, ${sem.length} sessão(ões).`,
       `Aulas concluídas: ${concl.length ? concl.join(', ') : 'nenhuma ainda'}.`,
       `Próxima aula: ${idTexto(proximaAula())}.`,
+      ...musicasVisiveis().map(m => { const { feitas, total, prox } = progressoMusica(m); return `Música "${m.titulo}": ${feitas} de ${total} etapas${prox ? ` (próxima: ${prox.titulo})` : ''}; ${m.config.nivel === 'simples' ? 'simplificado' : 'completo'}, partes de ${m.config.tamanho} compassos.`; }),
       '', 'Últimas sessões avaliadas:'
     ];
     estado.sessoes.filter(s => s.r).slice(-12).forEach(s => {
@@ -1137,7 +1179,7 @@
       const f = r.forca || {};
       const forca = ['D', 'E'].map(h => [1, 2, 3, 4, 5].some(k => f[h + k] != null) ? `${h === 'D' ? 'MD' : 'ME'} ${[1, 2, 3, 4, 5].map(k => `${k}:${f[h + k] ?? '-'}`).join(' ')}` : '').filter(Boolean).join(' | ');
       const onde = r.ondeBuracos ? Object.entries(r.ondeBuracos).map(([k, v]) => `${k}×${v}`).join(', ') : '';
-      linhas.push(`- ${s.dia} · aula ${idTexto(s.aula)} (${{ todas: 'ambas', D: 'MD', E: 'ME' }[s.maos] || '-'}, tempo pedido ♩=${s.tempo}) · certas ${r.acertos}% · regularidade ${r.regularidade ?? '-'}% · ♩=${r.bpm ?? '-'}`
+      linhas.push(`- ${s.dia} · ${rotuloAula(s.aula)} (${{ todas: 'ambas', D: 'MD', E: 'ME' }[s.maos] || '-'}, tempo pedido ♩=${s.tempo}) · certas ${r.acertos}% · regularidade ${r.regularidade ?? '-'}% · ♩=${r.bpm ?? '-'}`
         + (r.buracos != null ? ` · legato: ${r.buracos} buraco(s)${onde ? ' [' + onde + ']' : ''}` : '')
         + (r.staccato != null ? ` · staccato curto ${r.staccato}%` : '')
         + (r.dinamica != null ? ` · dinâmica ${r.dinamica}%` : '')
@@ -1191,6 +1233,15 @@
           }).join('')}</tbody>
         </table></div>
       </div>
+      ${musicasVisiveis().length ? `<div style="display:grid;gap:10px"><h2>Músicas</h2>
+        <div class="tabela-wrap"><table>
+          <thead><tr><th>Música</th><th>Etapas</th><th>Próxima</th><th>Minutos</th></tr></thead>
+          <tbody>${musicasVisiveis().map(m => {
+            const { feitas, total, prox } = progressoMusica(m);
+            const min = Math.round(estado.sessoes.filter(s => s.aula.startsWith('m:' + m.id + ':')).reduce((x, s) => x + (s.minutos || 0), 0));
+            return `<tr><td><a href="#musica-${esc(m.id)}">${esc(m.titulo)}</a></td><td class="num">${feitas} / ${total}</td><td>${prox ? esc(prox.titulo) : '—'}</td><td class="num">${min || '—'}</td></tr>`;
+          }).join('')}</tbody>
+        </table></div></div>` : ''}
       <div style="display:grid;gap:10px">
         <h2>Relatório para o Claude</h2>
         <p class="texto suave">Cole este texto na conversa a cada semana. Com ele eu ajusto tempos, escolho o que revisar e preparo os próximos módulos para os seus pontos fracos.</p>
@@ -1286,6 +1337,13 @@
     const sy = $('#sincronizar'); if (sy) sy.addEventListener('click', () => N.sincronizar(true));
     const sa = $('#sair'); if (sa) sa.addEventListener('click', async () => { await N.sair(); renderNuvem(); });
   }
+  document.addEventListener('musicas-mudaram', () => {
+    const v = $('#vista-musicas');
+    if (!v || v.hidden || $('#form-musica') || (playerAtual && playerAtual.tocando)) return;
+    const h = location.hash.slice(1);
+    if (h === 'musicas') renderMusicas();
+    else if (h.startsWith('musica-') && !acharMusica(h.slice(7))) renderMusica(h.slice(7));
+  });
   document.addEventListener('nuvem-estado', () => {
     if ($('#vista-progresso').hidden) return;
     const foco = document.activeElement;
@@ -1293,8 +1351,492 @@
     renderNuvem();
   });
 
+
+
+  /* ------------------------------------------------------------ dedilhado automático (sugestão)
+     Programação dinâmica sobre os dedos possíveis de cada nota/acorde. O custo mede o conforto
+     entre dedos vizinhos (distâncias confortáveis, inspiradas em Parncutt et al.) e aplica
+     preferências do método de Chopin: dedos longos (2, 3, 4) nas teclas pretas, polegar nas brancas,
+     passagem do polegar por baixo em vez de cruzar outros dedos. */
+  // [mínimo prático, mínimo confortável, mínimo relaxado, máximo relaxado, máximo confortável, máximo prático]
+  const VAOS = {
+    '1-2': [-5, -3, 1, 5, 8, 10], '1-3': [-4, -2, 3, 7, 10, 12], '1-4': [-3, -1, 5, 9, 12, 14], '1-5': [-1, 1, 7, 10, 13, 15],
+    '2-3': [1, 1, 1, 2, 3, 5], '2-4': [1, 1, 3, 4, 5, 7], '2-5': [2, 2, 5, 6, 8, 10],
+    '3-4': [1, 1, 1, 2, 2, 4], '3-5': [1, 1, 3, 4, 5, 7], '4-5': [1, 1, 1, 2, 3, 5]
+  };
+  function custoPar(f1, f2, d) {
+    // d: distância em semitons na direção "natural" da mão (positiva = rumo ao mindinho)
+    if (f1 === f2) return d === 0 ? 0 : Math.abs(d) <= 4 ? 12 : 2 + 0.3 * Math.abs(d); // mesmo dedo: ruim em notas vizinhas, normal ao mudar de posição
+    const inverte = f1 > f2;
+    const [a, b] = inverte ? [f2, f1] : [f1, f2];
+    let v = VAOS[a + '-' + b];
+    if (inverte) v = v.map(x => -x).reverse();
+    const [minP, minC, minR, maxR, maxC, maxP] = v;
+    let c = 0;
+    const passagem = a === 1 && ((f1 !== 1 && f2 === 1 && d > 0) || (f1 === 1 && d < 0)); // polegar por baixo / dedo por cima do polegar
+    if (d < minR) c += d >= minC ? (minR - d) : d >= minP ? (minR - minC) + 2 * (minC - d) : 20 + 3 * (minP - d);
+    if (d > maxR) c += d <= maxC ? (d - maxR) : d <= maxP ? (maxC - maxR) + 2 * (d - maxC) : 20 + 3 * (d - maxP);
+    // cruzamentos: polegar por baixo / dedo por cima do polegar são normais; outros cruzamentos não
+    if (a !== 1 && ((!inverte && d < 0) || (inverte && d > 0))) c += 12;
+    if (passagem) c = c * 0.6 + 1;
+    return c;
+  }
+  function custoDedo(f, m) {
+    const preta = ehPreta(m);
+    if (preta && f === 1) return 7;      // polegar na preta: evitar
+    if (preta && f === 5) return 1.5;
+    if (preta && f >= 2 && f <= 4) return -0.3; // dedos longos nas pretas (Chopin)
+    return 0;
+  }
+  function combinacoes(k) {
+    const out = [];
+    const rec = (ini, atual) => { if (atual.length === k) { out.push(atual.slice()); return; } for (let f = ini; f <= 5; f++) { atual.push(f); rec(f + 1, atual); atual.pop(); } };
+    rec(1, []);
+    return out;
+  }
+  const COMB = [null, combinacoes(1), combinacoes(2), combinacoes(3), combinacoes(4), combinacoes(5)];
+  function dedilhar(notas, h) {
+    if (!notas.length) return notas;
+    const q = m => (h === 'D' ? m : -m); // espelha a mão esquerda: tudo vira "rumo ao mindinho = q maior"
+    const grupos = [];
+    const porT = new Map();
+    notas.forEach(n => { const k = n.t.toFixed(3); if (!porT.has(k)) { porT.set(k, []); grupos.push({ t: n.t, notas: porT.get(k) }); } porT.get(k).push(n); });
+    grupos.sort((a, b) => a.t - b.t);
+    grupos.forEach(g => { g.notas.sort((a, b) => q(a.m) - q(b.m)); g.cands = COMB[Math.min(5, g.notas.length)]; g.fim = Math.max(...g.notas.map(n => n.t + n.d)); });
+    const interno = (g, c) => {
+      let s = 0;
+      for (let i = 0; i < c.length; i++) s += custoDedo(c[i], g.notas[i].m);
+      for (let i = 0; i + 1 < c.length; i++) s += custoPar(c[i], c[i + 1], q(g.notas[i + 1].m) - q(g.notas[i].m)) * 0.8;
+      return s;
+    };
+    let ant = grupos[0].cands.map(c => ({ custo: interno(grupos[0], c), de: -1 }));
+    const tabela = [ant];
+    for (let i = 1; i < grupos.length; i++) {
+      const gp = grupos[i - 1], g = grupos[i];
+      const pausa = g.t - gp.fim >= 1.5; // pausa longa: a mão pode se reposicionar à vontade
+      const atual = g.cands.map(c => {
+        const base = interno(g, c);
+        let melhor = Infinity, de = 0;
+        gp.cands.forEach((cp, j) => {
+          let t = ant[j].custo + base;
+          if (!pausa) {
+            // transição entre as notas mais próximas do polegar (âncora da posição) e entre as mais externas
+            t += custoPar(cp[0], c[0], q(g.notas[0].m) - q(gp.notas[0].m));
+            if (c.length > 1 || cp.length > 1) t += 0.15 * custoPar(cp[cp.length - 1], c[c.length - 1], q(g.notas[g.notas.length - 1].m) - q(gp.notas[gp.notas.length - 1].m));
+          }
+          if (t < melhor) { melhor = t; de = j; }
+        });
+        return { custo: melhor, de };
+      });
+      tabela.push(atual); ant = atual;
+    }
+    let j = ant.reduce((mi, x, i) => (x.custo < ant[mi].custo ? i : mi), 0);
+    for (let i = grupos.length - 1; i >= 0; i--) {
+      const c = grupos[i].cands[j];
+      grupos[i].notas.forEach((n, k) => { n.f = k < c.length ? c[k] : null; });
+      j = tabela[i][j].de;
+    }
+    return notas;
+  }
+
+  /* ------------------------------------------------------------ músicas (MIDI importado pelo aluno) */
+  const FAMILIAS_GM = ['Piano', 'Percussão melódica', 'Órgão', 'Violão/guitarra', 'Baixo', 'Cordas', 'Cordas', 'Metais', 'Palhetas', 'Flautas', 'Sintetizador', 'Sintetizador', 'Efeitos', 'Étnico', 'Percussão', 'Efeitos'];
+  const NOMES_BEMOL = ['Dó', 'Ré♭', 'Ré', 'Mi♭', 'Mi', 'Fá', 'Sol♭', 'Sol', 'Lá♭', 'Lá', 'Si♭', 'Si'];
+  const novoId = () => 'm' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const musicasVisiveis = () => estado.musicas.filter(m => !m.removida);
+  const acharMusica = id => estado.musicas.find(m => m.id === id && !m.removida);
+
+  function lerMidi(buf, nomeArquivo) {
+    const d = new DataView(buf), tam = buf.byteLength;
+    let p = 0;
+    const txt = (ini, n) => { let s = ''; for (let i = 0; i < n && ini + i < tam; i++) s += String.fromCharCode(d.getUint8(ini + i)); return s; };
+    if (tam < 14 || txt(0, 4) !== 'MThd') throw new Error('nao-midi');
+    const hlen = d.getUint32(4), formato = d.getUint16(8), ntr = d.getUint16(10), div = d.getUint16(12);
+    if (div & 0x8000) throw new Error('smpte');
+    p = 8 + hlen;
+    const dec = bytes => { try { return new TextDecoder('utf-8', { fatal: true }).decode(bytes); } catch (e) { return new TextDecoder('latin1').decode(bytes); } };
+    const fontes = new Map(), tempos = [];
+    let num = null, den = null, tom = null, tituloTrilha0 = '', ultimoTick = 0;
+    for (let t = 0; t < ntr && p + 8 <= tam; t++) {
+      const id = txt(p, 4), len = d.getUint32(p + 4);
+      p += 8;
+      const fim = Math.min(p + len, tam);
+      if (id !== 'MTrk') { p = fim; continue; }
+      let tick = 0, status = 0, nomeTrilha = '';
+      const abertas = new Map(), programa = {};
+      const vlq = () => { let v = 0, b; do { b = d.getUint8(p++); v = (v * 128) + (b & 0x7f); } while ((b & 0x80) && p < fim); return v; };
+      const chaveFonte = ch => (formato === 0 ? 0 : t) + ':' + ch;
+      const fonte = ch => {
+        const k = chaveFonte(ch);
+        if (!fontes.has(k)) fontes.set(k, { chave: k, trilha: formato === 0 ? 0 : t, canal: ch, nome: '', programa: null, notas: [] });
+        return fontes.get(k);
+      };
+      while (p < fim) {
+        tick += vlq();
+        if (p >= fim) break;
+        let b = d.getUint8(p);
+        if (b < 0x80) { if (!status) { p++; continue; } b = status; } else { p++; if (b < 0xF0) status = b; }
+        if (b === 0xFF) {
+          const tipo = d.getUint8(p++); const l = vlq(); const ini = p;
+          if (tipo === 0x03) nomeTrilha = dec(new Uint8Array(buf, ini, Math.min(l, fim - ini))).trim();
+          else if (tipo === 0x51 && l >= 3) tempos.push({ tick, bpm: 60000000 / ((d.getUint8(ini) << 16) | (d.getUint8(ini + 1) << 8) | d.getUint8(ini + 2)) });
+          else if (tipo === 0x58 && l >= 2 && num == null) { num = d.getUint8(ini); den = 2 ** d.getUint8(ini + 1); }
+          else if (tipo === 0x59 && l >= 1 && tom == null) tom = d.getInt8(ini);
+          p = ini + l; continue;
+        }
+        if (b === 0xF0 || b === 0xF7) { const l = vlq(); p += l; status = 0; continue; }
+        const cmd = b & 0xF0, ch = b & 0x0F;
+        const a1 = d.getUint8(p++);
+        const a2 = (cmd === 0xC0 || cmd === 0xD0) ? 0 : d.getUint8(p++);
+        if (cmd === 0x90 && a2 > 0) {
+          const k = ch * 128 + a1;
+          if (!abertas.has(k)) abertas.set(k, []);
+          abertas.get(k).push({ tick, vel: a2 });
+        } else if (cmd === 0x80 || (cmd === 0x90 && a2 === 0)) {
+          const pilha = abertas.get(ch * 128 + a1);
+          if (pilha && pilha.length) { const o = pilha.shift(); fonte(ch).notas.push([o.tick, Math.max(1, tick - o.tick), a1, o.vel]); }
+        } else if (cmd === 0xC0 && programa[ch] == null) programa[ch] = a1;
+      }
+      for (const [k, pilha] of abertas) for (const o of pilha) fonte(Math.floor(k / 128)).notas.push([o.tick, Math.max(1, tick - o.tick), k % 128, o.vel]);
+      ultimoTick = Math.max(ultimoTick, tick);
+      for (const f of fontes.values()) {
+        if (f.trilha !== (formato === 0 ? 0 : t)) continue;
+        if (formato !== 0 && !f.nome) f.nome = nomeTrilha;
+        if (f.programa == null && programa[f.canal] != null) f.programa = programa[f.canal];
+      }
+      if (t === 0) tituloTrilha0 = nomeTrilha;
+      p = fim;
+    }
+    // andamento: média ponderada pela duração de cada trecho
+    tempos.sort((a, b) => a.tick - b.tick);
+    let bpm = 120;
+    if (tempos.length === 1) bpm = tempos[0].bpm;
+    else if (tempos.length > 1) {
+      let soma = 0, peso = 0;
+      tempos.forEach((tp, i) => { const ate = i + 1 < tempos.length ? tempos[i + 1].tick : Math.max(ultimoTick, tp.tick + 1); const w = Math.max(0, ate - tp.tick); soma += tp.bpm * w; peso += w; });
+      bpm = peso ? soma / peso : tempos[0].bpm;
+    }
+    const lista = [...fontes.values()].filter(f => f.notas.length && f.canal !== 9);
+    lista.forEach(f => f.notas.sort((a, b) => a[0] - b[0] || a[2] - b[2]));
+    if (!lista.length) throw new Error('sem-notas');
+    const limpo = s => s && !/^(untitled|sem título|track ?\d*)$/i.test(s) ? s : '';
+    const doArquivo = (nomeArquivo || '').replace(/\.(mid|midi)$/i, '').replace(/[-_]+/g, ' ').trim();
+    return {
+      div, bpm: Math.round(bpm * 10) / 10, num: num || 4, den: den || 4, tom: tom ?? 0,
+      titulo: (formato === 0 ? limpo(tituloTrilha0) : limpo(tituloTrilha0)) || doArquivo || 'Música',
+      fontes: lista.map(({ chave, nome, canal, programa, notas }) => ({ chave, nome, canal, programa, notas }))
+    };
+  }
+
+  function rotuloFonte(f) {
+    const inst = f.programa == null ? 'Piano' : FAMILIAS_GM[f.programa >> 3];
+    const lo = Math.min(...f.notas.map(n => n[2])), hi = Math.max(...f.notas.map(n => n[2]));
+    return `${f.nome ? f.nome + ' · ' : ''}${inst}, canal ${f.canal + 1} · ${f.notas.length} notas · ${nomeMidi(lo)}–${nomeMidi(hi)}`;
+  }
+  function opcoesFontes(midi) {
+    const ops = [{ v: '', t: 'Nenhuma' }];
+    midi.fontes.forEach(f => {
+      ops.push({ v: f.chave, t: rotuloFonte(f) });
+      const alto = f.notas.filter(n => n[2] >= 60).length;
+      if (alto && alto < f.notas.length) {
+        ops.push({ v: f.chave + '|alto', t: `${rotuloFonte(f).split(' · ')[0]} — só do Dó central para cima` });
+        ops.push({ v: f.chave + '|baixo', t: `${rotuloFonte(f).split(' · ')[0]} — só abaixo do Dó central` });
+      }
+    });
+    return ops;
+  }
+  function configPadrao(midi) {
+    const base = { nivel: 'simples', tamanho: 4 };
+    const media = f => f.notas.reduce((a, n) => a + n[2], 0) / f.notas.length;
+    const pianos = midi.fontes.filter(f => (f.programa ?? 0) < 8).sort((a, b) => b.notas.length - a.notas.length);
+    const altos = f => f.notas.filter(n => n[2] >= 60).length;
+    // um piano que sozinho cobre as duas mãos: divide no Dó central
+    for (const f of pianos) if (f.notas.length >= 24 && altos(f) >= 8 && f.notas.length - altos(f) >= 8 && !(pianos.length > 1 && pianos.some(g => g !== f && media(g) < 60 && media(f) >= 60))) return { ...base, md: f.chave + '|alto', me: f.chave + '|baixo' };
+    // piano em duas trilhas (uma por mão)
+    const pAlto = pianos.find(f => media(f) >= 60 && f.notas.length >= 8), pBaixo = pianos.find(f => media(f) < 60 && f.notas.length >= 8);
+    if (pAlto && pBaixo) return { ...base, md: pAlto.chave, me: pBaixo.chave };
+    const uteis = midi.fontes.filter(f => f.notas.length >= 8).sort((a, b) => media(b) - media(a));
+    if (!uteis.length) return { ...base, md: midi.fontes[0].chave, me: '' };
+    if (uteis.length === 1) return media(uteis[0]) >= 60 ? { ...base, md: uteis[0].chave, me: '' } : { ...base, md: '', me: uteis[0].chave };
+    return { ...base, md: uteis[0].chave, me: uteis[uteis.length - 1].chave };
+  }
+
+  function quantizar(tick, div) {
+    let melhor = tick, dist = Infinity;
+    for (const g of [div / 4, div / 3, div / 6]) { const q = Math.round(tick / g) * g; const dd = Math.abs(q - tick); if (dd < dist - 1e-9) { dist = dd; melhor = q; } }
+    return melhor;
+  }
+  function notasDaMao(musica, sel, h) {
+    if (!sel) return [];
+    const { midi, config } = musica;
+    const [chave, corte] = sel.split('|');
+    const f = midi.fontes.find(x => x.chave === chave);
+    if (!f) return [];
+    const div = midi.div;
+    let ns = f.notas.filter(n => !corte || (corte === 'alto' ? n[2] >= 60 : n[2] < 60)).map(n => {
+      const ini = quantizar(n[0], div);
+      return { ini, fim: Math.max(ini + div / 6, quantizar(n[0] + n[1], div)), m: n[2], vel: n[3] };
+    });
+    const vistos = new Set();
+    ns = ns.filter(n => { const k = n.ini + ':' + n.m; if (vistos.has(k)) return false; vistos.add(k); return true; });
+    ns.sort((a, b) => a.ini - b.ini || a.m - b.m);
+    if (config.nivel === 'simples') {
+      const porIni = new Map();
+      ns.forEach(n => { const g = porIni.get(n.ini); if (!g || (h === 'D' ? n.m > g.m : n.m < g.m)) porIni.set(n.ini, n); });
+      ns = [...porIni.values()].sort((a, b) => a.ini - b.ini);
+      for (let i = 0; i < ns.length - 1; i++) if (ns[i].fim > ns[i + 1].ini) ns[i].fim = ns[i + 1].ini;
+    }
+    const nomes = (midi.tom ?? 0) < 0 ? NOMES_BEMOL : NOMES;
+    return ns.map(n => ({ t: +(n.ini / div).toFixed(4), d: +Math.max(0.1, (n.fim - n.ini) / div).toFixed(4), m: n.m, f: null, h, v: +(n.vel / 127).toFixed(3), a: 'leg', n: nomes[n.m % 12] }));
+  }
+  function hashCurto(s) { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return (h >>> 0).toString(36); }
+
+  const cachePlanos = new Map();
+  function planoMusica(musica) {
+    const chaveCache = musica.id + '|' + musica.atualizado_em;
+    if (cachePlanos.has(chaveCache)) return cachePlanos.get(chaveCache);
+    const { midi, config } = musica;
+    const cb = midi.num * 4 / midi.den;
+    const md = dedilhar(notasDaMao(musica, config.md, 'D'), 'D'), me = dedilhar(notasDaMao(musica, config.me, 'E'), 'E');
+    const todas = md.concat(me);
+    const plano = { cb, md, me, sig: hashCurto([config.md, config.me, config.nivel, config.tamanho].join('/')), partes: [], etapas: [], compassos: 0 };
+    if (todas.length) {
+      const c0 = Math.floor(Math.min(...todas.map(n => n.t)) / cb + 1e-6);
+      const c1 = Math.floor(Math.max(...todas.map(n => n.t)) / cb + 1e-6);
+      plano.compassos = c1 - c0 + 1;
+      for (let c = c0, k = 1; c <= c1; c += config.tamanho, k++) {
+        const ini = c, fim = Math.min(c + config.tamanho, c1 + 1);
+        const tem = lista => lista.some(n => n.t >= ini * cb - 1e-6 && n.t < fim * cb - 1e-6);
+        plano.partes.push({ k, ini, fim, D: tem(md), E: tem(me) });
+      }
+      const P = plano.partes;
+      const add = (chave, titulo, tipo, de, ate, grupo) => plano.etapas.push({ chave, titulo, tipo, de, ate, grupo });
+      P.forEach((pt, i) => {
+        const nome = `Parte ${pt.k}`;
+        if (pt.D && pt.E) {
+          add(`p${pt.k}-D`, `${nome}, mão direita`, 'D', i, i, 'mao');
+          add(`p${pt.k}-E`, `${nome}, mão esquerda`, 'E', i, i, 'mao');
+          add(`p${pt.k}-DE`, `${nome}, mãos juntas`, 'DE', i, i, 'juntas');
+        } else if (pt.D || pt.E) add(`p${pt.k}`, `${nome}, ${pt.D ? 'mão direita' : 'mão esquerda'}`, pt.D ? 'D' : 'E', i, i, 'mao');
+        else return;
+        if (i > 0) add(`p${P[i - 1].k}-${pt.k}`, `Ligar partes ${P[i - 1].k} e ${pt.k}`, 'DE', i - 1, i, 'ligar');
+        if (P.length > 4 && i >= 3 && (i + 1) % 4 === 0) add(`b${P[i - 3].k}-${pt.k}`, `Bloco: partes ${P[i - 3].k} a ${pt.k}`, 'DE', i - 3, i, 'bloco');
+      });
+      if (P.length > 1) add('inteira', 'Música inteira', 'DE', 0, P.length - 1, 'inteira');
+      add('final', 'Música inteira no tempo original', 'DE', 0, P.length - 1, 'final');
+      plano.etapas.forEach((e, n) => { e.n = n + 1; e.id = `m:${musica.id}:${plano.sig}:${e.chave}`; });
+    }
+    cachePlanos.set(chaveCache, plano);
+    return plano;
+  }
+  function aulaDaEtapa(musica, plano, e) {
+    const cb = plano.cb, P = plano.partes;
+    const ini = P[e.de].ini * cb, fim = P[e.ate].fim * cb;
+    const fonte = e.tipo === 'D' ? plano.md : e.tipo === 'E' ? plano.me : plano.md.concat(plano.me);
+    const notas = fonte.filter(n => n.t >= ini - 1e-6 && n.t < fim - 1e-6)
+      .map(n => ({ ...n, t: +(n.t - ini).toFixed(4), d: +Math.min(n.d, fim - n.t).toFixed(4) }));
+    const secoes = e.ate > e.de ? P.slice(e.de, e.ate + 1).map(pt => ({ t: +(pt.ini * cb - ini).toFixed(4), rotulo: `Parte ${pt.k}` })) : [];
+    const bpm = Math.max(20, Math.round(musica.midi.bpm));
+    const final = e.chave === 'final';
+    return {
+      id: e.id, titulo: e.titulo, tipo: 'pratica', bpm, compasso: Math.max(1, Math.round(cb)), maos: e.tipo, notas, secoes,
+      metricas: ['tempo', 'forca'], chaveTempo: 'tempoMusica',
+      passa: final ? { acertos: 90, regularidade: 80, bpm: Math.round(bpm * 0.95) } : { acertos: 90, regularidade: 80 },
+      criterio: final ? `Notas certas ≥ 90% e regularidade ≥ 80%, a ♩ = ${Math.round(bpm * 0.95)} ou mais.` : 'Notas certas ≥ 90% e regularidade ≥ 80%, no tempo que for confortável.',
+      textoPassou: final ? 'Música concluída no tempo original. Parabéns!' : 'Etapa concluída. Pode seguir para a próxima.'
+    };
+  }
+  function dicaEtapa(e, bpm) {
+    return {
+      mao: e.tipo === 'D' ? 'Só a mão direita. Comece devagar e só acelere quando a regularidade passar de 80%.'
+        : 'Só a mão esquerda. Ela é o chão da música: tempo firme, sem pressa.',
+      juntas: 'As duas mãos juntas nesta parte. Se travar, use Direita ou Esquerda no player para separar de novo por alguns minutos.',
+      ligar: 'Toque as duas partes em sequência, sem parar na emenda. É na passagem de uma para a outra que a música costuma quebrar.',
+      bloco: 'Quatro partes seguidas, para ganhar fôlego. Se errar no meio, continue: o objetivo é não parar.',
+      inteira: 'A música inteira, no tempo que for confortável.',
+      final: `A música inteira no tempo original (♩ = ${bpm}). Suba o tempo aos poucos: 70%, 80%, 90%, 100%.`
+    }[e.grupo];
+  }
+  function progressoMusica(m) {
+    const pl = planoMusica(m);
+    const feitas = pl.etapas.filter(e => statusAula(e.id) === 'ok').length;
+    const prox = pl.etapas.find(e => statusAula(e.id) !== 'ok') || pl.etapas[pl.etapas.length - 1];
+    return { pl, feitas, total: pl.etapas.length, prox };
+  }
+  rotuloAula = id => {
+    if (!id.startsWith('m:')) return 'aula ' + idTexto(id);
+    const [, mid] = id.split(':');
+    const m = estado.musicas.find(x => x.id === mid);
+    if (!m) return 'música removida';
+    const e = planoMusica(m).etapas.find(x => x.id === id);
+    return `${m.titulo} · ${e ? e.titulo : 'etapa de uma divisão anterior'}`;
+  };
+
+  function salvarMusica(m) {
+    m.atualizado_em = new Date().toISOString(); m.sync = false;
+    if (!estado.musicas.includes(m)) estado.musicas.push(m);
+    salvar(); Nuvem.agendar();
+  }
+
+  function formMusica(alvo, m, aoSalvar, aoCancelar) {
+    const ops = opcoesFontes(m.midi);
+    const sel = (id, atual) => `<select id="${id}" class="entrada">${ops.map(o => `<option value="${esc(o.v)}" ${o.v === atual ? 'selected' : ''}>${esc(o.t)}</option>`).join('')}</select>`;
+    const c = m.config;
+    alvo.innerHTML = `<form class="form-musica" id="form-musica">
+      <div class="grade">
+        <label class="campo" for="m-titulo">Nome da música <input id="m-titulo" class="entrada" value="${esc(m.titulo)}" required maxlength="80"></label>
+        <div class="campo"><span>Original</span><b class="mono" style="color:var(--ink)">♩ = ${Math.round(m.midi.bpm)} · ${m.midi.num}/${m.midi.den}</b></div>
+      </div>
+      <div class="grade">
+        <label class="campo" for="m-md">Mão direita toca ${sel('m-md', c.md)}</label>
+        <label class="campo" for="m-me">Mão esquerda toca ${sel('m-me', c.me)}</label>
+      </div>
+      <div class="grade">
+        <div class="campo"><span>Nível</span><div class="seg" role="group" aria-label="Nível">
+          <button type="button" data-nivel="simples" aria-pressed="${c.nivel === 'simples'}">Simplificado</button>
+          <button type="button" data-nivel="completo" aria-pressed="${c.nivel === 'completo'}">Completo</button></div>
+          <span class="aviso">Simplificado: uma nota por vez em cada mão (a de cima na direita, a de baixo na esquerda).</span></div>
+        <div class="campo"><span>Tamanho de cada parte</span><div class="seg" role="group" aria-label="Tamanho da parte">
+          ${[2, 4, 8].map(n => `<button type="button" data-tamanho="${n}" aria-pressed="${c.tamanho === n}">${n} compassos</button>`).join('')}</div></div>
+      </div>
+      <p class="aviso" id="m-resumo"></p>
+      <div class="linha-botoes"><button class="btn primario" type="submit">${aoCancelar ? 'Salvar ajustes' : 'Criar plano de estudo'}</button>
+        <button class="btn" type="button" id="m-cancelar">Cancelar</button></div>
+    </form>`;
+    const rascunho = () => ({ ...m, id: m.id || 'rascunho', atualizado_em: 'r' + Math.random(), config: { md: $('#m-md').value, me: $('#m-me').value, nivel: $('[data-nivel][aria-pressed="true"]').dataset.nivel, tamanho: +$('[data-tamanho][aria-pressed="true"]').dataset.tamanho } });
+    const resumo = () => {
+      const r = rascunho(); const pl = planoMusica(r); cachePlanos.clear();
+      $('#m-resumo').textContent = !r.config.md && !r.config.me ? 'Escolha o que cada mão vai tocar.'
+        : `${pl.compassos} compassos com notas · ${pl.partes.length} parte${pl.partes.length === 1 ? '' : 's'} · ${pl.etapas.length} etapas de estudo`;
+    };
+    alvo.addEventListener('click', e => {
+      const b = e.target.closest('button[data-nivel],button[data-tamanho]'); if (!b) return;
+      const attr = b.dataset.nivel ? 'data-nivel' : 'data-tamanho';
+      $$(`[${attr}]`, alvo).forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+      resumo();
+    });
+    $('#m-md').addEventListener('change', resumo); $('#m-me').addEventListener('change', resumo);
+    $('#m-cancelar').addEventListener('click', () => { alvo.innerHTML = ''; if (aoCancelar) aoCancelar(); });
+    $('#form-musica').addEventListener('submit', ev => {
+      ev.preventDefault();
+      const r = rascunho();
+      if (!r.config.md && !r.config.me) { $('#m-resumo').textContent = 'Escolha o que cada mão vai tocar.'; return; }
+      m.titulo = $('#m-titulo').value.trim() || m.titulo; m.config = r.config;
+      cachePlanos.clear();
+      aoSalvar(m);
+    });
+    resumo();
+  }
+
+  function renderMusicas() {
+    const el = $('#vista-musicas');
+    const lista = musicasVisiveis();
+    el.innerHTML = `<div style="display:grid;gap:28px">
+      <div class="aula-cab"><span class="rotulo">Repertório</span><h1>Suas músicas</h1>
+        <p class="texto suave">Importe o arquivo MIDI de uma música. O site divide em partes e monta o caminho: cada parte com uma mão de cada vez, depois juntas, depois ligada à anterior, até a música inteira no tempo original.</p></div>
+      <div class="importar">
+        <div class="linha-botoes">
+          <label class="btn primario" for="arquivo-midi">Importar arquivo MIDI</label>
+          <input type="file" id="arquivo-midi" class="oculto">
+          <span class="aviso">O arquivo fica neste aparelho e na sua conta. Não vai para o site público.</span>
+        </div>
+        <p class="aviso" id="import-msg" aria-live="polite"></p>
+        <div id="config-musica"></div>
+      </div>
+      ${lista.length ? `<div class="musicas">${lista.map(m => {
+        const { feitas, total, prox, pl } = progressoMusica(m);
+        const min = Math.round(estado.sessoes.filter(s => s.aula.startsWith('m:' + m.id + ':')).reduce((a, s) => a + (s.minutos || 0), 0));
+        return `<article class="musica-card">
+          <h3>${esc(m.titulo)}</h3>
+          <p class="mono suave" style="font-size:.85rem">♩ = ${Math.round(m.midi.bpm)} · ${pl.compassos} compassos · ${pl.partes.length} partes${min ? ` · ${min} min praticados` : ''}</p>
+          <div class="barra-prog" aria-hidden="true"><div style="width:${total ? Math.round(100 * feitas / total) : 0}%"></div></div>
+          <p class="aviso">${feitas} de ${total} etapas</p>
+          <div class="linha-botoes">
+            <a class="btn primario" href="#musica-${esc(m.id)}">${feitas ? 'Continuar' : 'Começar'}${prox ? ': ' + esc(prox.titulo) : ''}</a>
+            <button class="btn" type="button" data-remover="${esc(m.id)}">Remover</button>
+          </div>
+        </article>`;
+      }).join('')}</div>` : `<p class="suave">Nenhuma música ainda. Importe um arquivo .mid para começar.${Nuvem.logado ? '' : ' Se você já importou em outro aparelho, entre na sua conta na aba Progresso para trazer as músicas.'}</p>`}
+    </div>`;
+    const msg = $('#import-msg');
+    $('#arquivo-midi').addEventListener('change', async ev => {
+      const arq = ev.target.files && ev.target.files[0]; if (!arq) return;
+      msg.textContent = 'Lendo o arquivo…';
+      try {
+        const midi = lerMidi(await arq.arrayBuffer(), arq.name);
+        const m = { id: novoId(), titulo: midi.titulo, criada: new Date().toISOString(), atualizado_em: '', removida: false, midi, config: configPadrao(midi) };
+        msg.textContent = `${midi.fontes.length} instrumento${midi.fontes.length === 1 ? '' : 's'} encontrado${midi.fontes.length === 1 ? '' : 's'}. Já sugeri o que cada mão toca; ajuste se quiser.`;
+        formMusica($('#config-musica'), m, salva => { salvarMusica(salva); location.hash = 'musica-' + salva.id; });
+      } catch (e) {
+        msg.textContent = { 'nao-midi': 'Esse arquivo não é um MIDI (.mid). Escolha outro.', smpte: 'Esse MIDI usa um formato de tempo de vídeo (SMPTE) que o curso não lê. Tente outra versão do arquivo.', 'sem-notas': 'Não encontrei notas de piano nesse arquivo (só bateria ou nada).' }[e.message] || 'Não consegui ler esse arquivo: ' + e.message;
+      }
+      ev.target.value = '';
+    });
+    const grade = $('.musicas', el);
+    if (grade) grade.addEventListener('click', e => {
+      const b = e.target.closest('[data-remover]'); if (!b) return;
+      if (b.dataset.confirmar !== 'sim') { b.dataset.confirmar = 'sim'; b.textContent = 'Confirmar remoção'; b.classList.add('perigo'); setTimeout(() => { if (b.isConnected) { b.dataset.confirmar = ''; b.textContent = 'Remover'; b.classList.remove('perigo'); } }, 4000); return; }
+      const m = acharMusica(b.dataset.remover); if (!m) return;
+      m.removida = true; salvarMusica(m); renderMusicas();
+    });
+  }
+
+  const etapaEscolhida = new Map();
+  function renderMusica(id) {
+    const el = $('#vista-musicas');
+    const m = acharMusica(id);
+    if (!m) { el.innerHTML = `<div style="display:grid;gap:16px"><h1>Música não encontrada</h1><p class="suave">Ela pode ter sido removida, ou ainda não chegou da nuvem neste aparelho.</p><a class="btn" href="#musicas">Ver suas músicas</a></div>`; return; }
+    const { pl, feitas, total, prox } = progressoMusica(m);
+    if (!pl.etapas.length) { el.innerHTML = `<div style="display:grid;gap:16px"><h1>${esc(m.titulo)}</h1><p class="suave">Nenhuma nota nas mãos escolhidas.</p><button class="btn" id="ajustar">Ajustar mãos e partes</button><div id="config-musica"></div></div>`; $('#ajustar').onclick = () => formMusica($('#config-musica'), m, s => { salvarMusica(s); renderMusica(id); }, () => {}); return; }
+    const n = etapaEscolhida.get(id) || prox.n;
+    const e = pl.etapas.find(x => x.n === n) || prox;
+    const a = aulaDaEtapa(m, pl, e);
+    const status = x => statusAula(x.id);
+    el.innerHTML = `<div style="display:grid;gap:22px">
+      <div class="aula-cab"><span class="rotulo">Música</span><h1>${esc(m.titulo)}</h1>
+        <div class="meta"><span>♩ = ${Math.round(m.midi.bpm)}</span><span>${m.midi.num}/${m.midi.den}</span><span>${pl.compassos} compassos</span><span>${pl.partes.length} partes de ${m.config.tamanho}</span><span>${m.config.nivel === 'simples' ? 'simplificado' : 'completo'}</span></div>
+        <div class="linha-botoes"><button class="btn" type="button" id="ajustar">Ajustar mãos e partes</button><a class="btn" href="#musicas">Todas as músicas</a></div>
+      </div>
+      <div id="config-musica"></div>
+      <div class="plano-estudo">
+        <div class="plano-cab"><span class="rotulo">Plano de estudo</span><span class="mono suave">${feitas} de ${total} etapas</span></div>
+        <div class="barra-prog" aria-hidden="true"><div style="width:${Math.round(100 * feitas / total)}%"></div></div>
+        <ol class="etapas" id="etapas">${pl.etapas.map(x => `<li><button type="button" class="etapa" data-etapa="${x.n}" ${x.n === e.n ? 'aria-current="step"' : ''}>
+          <span class="n">${x.n}</span><span class="t">${esc(x.titulo)}</span>${status(x) === 'ok' ? '<span class="chip ok">passou</span>' : status(x) === 'andamento' ? '<span class="chip andamento">praticando</span>' : x.n === prox.n ? '<span class="chip">próxima</span>' : ''}</button></li>`).join('')}</ol>
+      </div>
+      <div class="aula-cab"><span class="rotulo">Etapa ${e.n} de ${total}</span><h2>${esc(e.titulo)}</h2><p class="texto suave">${esc(dicaEtapa(e, a.bpm))} O tempo começa em ${Math.round((estado.prefs.tempoMusica ?? 0.6) * 100)}% do original; ajuste no controle Tempo.</p>
+        <p class="aviso">Os números nas notas são uma sugestão de dedilhado calculada pelo site, seguindo Chopin: dedos longos nas teclas pretas, polegar nas brancas. Se algum dedo não encaixar na sua mão, use o que for mais natural e mantenha sempre o mesmo.</p></div>
+      ${htmlPlayer(a)}
+      <div id="resultado"></div>
+      <div class="criterio"><span class="rotulo">Para passar</span><p>${esc(a.criterio)}</p></div>
+      ${historicoAula(a.id)}
+    </div>`;
+    const atual = $('#etapas [aria-current="step"]');
+    if (atual) atual.parentElement.parentElement.scrollTop = Math.max(0, atual.offsetTop - 80);
+    $('#etapas').addEventListener('click', ev => {
+      const b = ev.target.closest('[data-etapa]'); if (!b) return;
+      etapaEscolhida.set(id, +b.dataset.etapa);
+      if (playerAtual) { playerAtual.destruir(); playerAtual = null; }
+      renderMusica(id);
+      const pl2 = $('#player'); if (pl2) pl2.scrollIntoView({ block: 'center' });
+    });
+    $('#ajustar').addEventListener('click', () => formMusica($('#config-musica'), m, s => { salvarMusica(s); etapaEscolhida.delete(id); if (playerAtual) { playerAtual.destruir(); playerAtual = null; } renderMusica(id); }, () => {}));
+    montarPlayer(a, {
+      aoResultado: ({ r }) => {
+        const seguinte = pl.etapas.find(x => x.n === e.n + 1);
+        if (r.passou && !r.parcial && seguinte) {
+          const caixa = $('#resultado .resultado');
+          const b = document.createElement('button');
+          b.className = 'btn primario'; b.type = 'button'; b.textContent = `Próxima etapa: ${seguinte.titulo}`;
+          b.addEventListener('click', () => { etapaEscolhida.set(id, seguinte.n); if (playerAtual) { playerAtual.destruir(); playerAtual = null; } renderMusica(id); $('#player').scrollIntoView({ block: 'center' }); });
+          caixa.appendChild(b);
+        }
+      }
+    });
+  }
+
   /* ------------------------------------------------------------ início */
-  window.__curso = { avaliar, Midi, Nuvem, estado, get player() { return playerAtual; } };
+  window.__curso = { avaliar, Midi, Nuvem, estado, lerMidi, planoMusica, get player() { return playerAtual; } };
   if ('speechSynthesis' in window) { try { speechSynthesis.getVoices(); speechSynthesis.onvoiceschanged = () => {}; } catch (e) { /* nada */ } }
   Midi.iniciar(false);
   Nuvem.iniciar();

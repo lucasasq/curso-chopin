@@ -330,6 +330,35 @@ textarea {
 .form-conta { display: grid; gap: 10px; justify-items: start; }
 .form-conta .campo { display: grid; gap: 4px; }
 
+/* ---------- músicas ---------- */
+.oculto { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; pointer-events: none; }
+.importar { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 18px; display: grid; gap: 12px; }
+.importar label.btn { cursor: pointer; }
+.form-musica { display: grid; gap: 16px; border-top: 1px solid var(--line); padding-top: 16px; }
+.form-musica .grade { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px 20px; align-items: start; }
+.form-musica .campo { display: grid; gap: 6px; align-items: start; }
+.form-musica .entrada { width: 100%; }
+select.entrada { appearance: auto; }
+.musicas { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 14px; }
+.musica-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 18px; display: grid; gap: 10px; align-content: start; min-width: 0; }
+.musica-card h3 { font-family: var(--font-display); font-size: 1.4rem; font-weight: 500; font-variation-settings: "opsz" 48; }
+.btn.perigo { border-color: var(--bad); color: var(--bad); }
+.plano-estudo { display: grid; gap: 10px; }
+.plano-cab { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; align-items: baseline; }
+.etapas {
+  list-style: none; margin: 0; padding: 6px; display: grid; gap: 2px; max-height: 300px; overflow: auto;
+  border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface);
+}
+.etapa {
+  width: 100%; display: grid; grid-template-columns: 2.4em minmax(0, 1fr) auto; gap: 10px; align-items: center;
+  text-align: left; background: transparent; border: 0; border-radius: 8px; padding: 8px 10px; min-height: 42px; color: var(--ink);
+}
+.etapa:hover { background: var(--surface-2); }
+.etapa[aria-current="step"] { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.etapa .n { font-family: var(--font-mono); font-size: 0.8rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.etapa .t { min-width: 0; }
+h2 { text-wrap: balance; }
+
 @media (max-width: 860px) {
   .abertura, .aula-info { grid-template-columns: minmax(0, 1fr); }
   .principios { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -354,6 +383,7 @@ textarea {
     <nav class="nav" aria-label="Seções">
       <a href="#curso" data-nav="curso">Curso</a>
       <a href="#aula-1-1" data-nav="aula" id="nav-aula">Aula</a>
+      <a href="#musicas" data-nav="musicas">Músicas</a>
       <a href="#progresso" data-nav="progresso">Progresso</a>
     </nav>
     <button class="pill" id="pill-midi" type="button" data-estado="pedir">
@@ -366,6 +396,7 @@ textarea {
   <div class="wrap">
     <section class="vista" id="vista-curso" aria-label="O curso"></section>
     <section class="vista" id="vista-aula" aria-label="Aula" hidden></section>
+    <section class="vista" id="vista-musicas" aria-label="Músicas" hidden></section>
     <section class="vista" id="vista-progresso" aria-label="Progresso" hidden></section>
   </div>
 </main>
