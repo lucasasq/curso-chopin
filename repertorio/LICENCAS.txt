@@ -27,6 +27,27 @@ atribuição ao Mutopia Project e aos seus editores; as CC BY-SA exigem que deri
 - chopin-valsa-69-2.mid: Chopin · Valsa em Si menor, Op. 69 nº 2
     origem: https://www.mutopiaproject.org/ftp/ChopinFF/O69/w10-h-moll-cfi/
     licença: Domínio público
+- bach-minueto-anh116.mid: Caderno de Anna Magdalena Bach · Minueto em Sol menor, BWV Anh. 116
+    origem: https://www.mutopiaproject.org/ftp/BachJS/BWVAnh116/anna-magdalena-07/
+    licença: Domínio público
+- bach-invencao-1.mid: J. S. Bach · Invenção nº 1 em Dó maior, BWV 772
+    origem: https://www.mutopiaproject.org/ftp/BachJS/BWV772/bach-invention-01/
+    licença: CC BY-SA (Mutopia)
+- bach-invencao-4.mid: J. S. Bach · Invenção nº 4 em Ré menor, BWV 775
+    origem: https://www.mutopiaproject.org/ftp/BachJS/BWV775/bach-invention-04/
+    licença: Domínio público
+- bach-invencao-8.mid: J. S. Bach · Invenção nº 8 em Fá maior, BWV 779
+    origem: https://www.mutopiaproject.org/ftp/BachJS/BWV779/bach-invention-08/
+    licença: Domínio público
+- bach-invencao-13.mid: J. S. Bach · Invenção nº 13 em Lá menor, BWV 784
+    origem: https://www.mutopiaproject.org/ftp/BachJS/BWV784/bach-invention-13/
+    licença: Domínio público
+- bach-preludio-846.mid: J. S. Bach · Prelúdio em Dó maior, Cravo Bem Temperado I, BWV 846
+    origem: https://www.mutopiaproject.org/ftp/BachJS/BWV846/wtk1-prelude1/
+    licença: Domínio público
+- field-noturno-5.mid: John Field · Noturno nº 5 em Si♭ maior, H. 37
+    origem: https://www.mutopiaproject.org/ftp/FieldJ/H37/Field_Nocturne_5/
+    licença: CC BY-SA (Mutopia)
 - chopin-noturno-9-2.mid: Chopin · Noturno em Mi♭ maior, Op. 9 nº 2
     origem: https://www.mutopiaproject.org/ftp/ChopinFF/O9/chopin_nocturne_op9_n2/
     licença: CC BY-SA (Mutopia)

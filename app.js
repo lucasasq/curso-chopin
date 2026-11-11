@@ -26,11 +26,12 @@
   const estado = {
     sessoes: store.get('sessoes', []),
     status: store.get('status', {}),
-    prefs: Object.assign({ tempo: 1, tempoMusica: 0.6, metronomo: false, nomes: false, repetir: false }, store.get('prefs', {})),
+    prefs: Object.assign({ tempo: 1, tempoMusica: 0.6, metronomo: false, nomes: false, repetir: false, partitura: true }, store.get('prefs', {})),
     musicas: store.get('musicas', []),
-    jornada: store.get('jornada', null)
+    jornada: store.get('jornada', null),
+    niveisVistos: store.get('niveisVistos', [])
   };
-  const salvar = () => { store.set('sessoes', estado.sessoes); store.set('status', estado.status); store.set('prefs', estado.prefs); store.set('musicas', estado.musicas); store.set('jornada', estado.jornada); };
+  const salvar = () => { store.set('sessoes', estado.sessoes); store.set('status', estado.status); store.set('prefs', estado.prefs); store.set('musicas', estado.musicas); store.set('jornada', estado.jornada); store.set('niveisVistos', estado.niveisVistos); };
   const hojeStr = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
   function statusAula(id) {
@@ -1080,6 +1081,7 @@
       else if (this.tocando) this.aula.notas.forEach(n => { if (n.f && (this.maos === 'todas' || n.h === this.maos) && this.batida >= n.t && this.batida < n.t + n.d) dedos.push({ h: n.h, f: n.f, m: n.m }); });
       else { const prox = this.ativas.filter(n => n.f && n.t >= this.batida - 1e-6).sort((a, b) => a.t - b.t); const t0 = prox.length ? prox[0].t : null; prox.forEach(n => { if (n.t === t0) dedos.push({ h: n.h, f: n.f, m: n.m }); }); }
       this.atualizarMaos(dedos, !this.tocando && !this.destaque && this.modo !== 'praticar');
+      if (this.partitura) { const tAtual = this.modo === 'praticar' ? (evAtual ? evAtual.t : (this.terminou ? -1 : this.batida)) : this.batida; if (this.tocando || this.modo === 'praticar') this.partitura.marcar(tAtual); else this.partitura.limpar(); }
       const agora = performance.now();
       for (const [m, v] of Midi.teclas) if (!marcas.has(m) || this.modo === 'ouvir') marcas.set(m, { cor: css('--press'), rotulo: estado.prefs.nomes ? NOMES[m % 12] : '', textoCor: '#10121a' });
       for (const [m, f] of this.flash) { if (f.ate < agora) { this.flash.delete(m); continue; } if (f.cor) marcas.set(m, { cor: f.cor, rotulo: NOMES[m % 12], textoCor: '#ffffff' }); }
@@ -1369,9 +1371,11 @@
           <label class="chk"><input type="checkbox" id="metronomo" ${p.metronomo ? 'checked' : ''}> Metrônomo</label>
           <label class="chk"><input type="checkbox" id="nomes" ${p.nomes ? 'checked' : ''}> Nomes das notas</label>
           <label class="chk"><input type="checkbox" id="repetir" ${p.repetir ? 'checked' : ''}> Repetir</label>
+          ${window.Partitura && window.Partitura.disponivel() && a.notas.length ? `<label class="chk"><input type="checkbox" id="partitura-chk" ${p.partitura ? 'checked' : ''}> Partitura</label>` : ''}
         </div>
         <div class="palco"><canvas aria-label="Teclado animado: as notas descem até as teclas que você deve apertar"></canvas></div>
         <div class="maos">${maoSVG('E')}<p class="legenda-mao" aria-live="polite"></p>${maoSVG('D')}</div>
+        ${window.Partitura && window.Partitura.disponivel() && a.notas.length ? `<div class="partitura" id="partitura" ${p.partitura ? '' : 'hidden'} aria-label="Partitura do exercício"></div>` : ''}
         <div class="transporte">
           <button class="btn primario tocar" type="button" data-acao="tocar"></button>
           <button class="btn" type="button" data-acao="reiniciar">Do início</button>
@@ -1420,6 +1424,15 @@
     });
     $('#nomes').addEventListener('change', e => { p.nomes = e.target.checked; salvar(); pl.desenhar(); });
     $('#repetir').addEventListener('change', e => { p.repetir = e.target.checked; salvar(); });
+    const partEl = $('#partitura');
+    if (partEl) {
+      let larguraAnt = 0;
+      pl.desenharPartitura = () => { if (partEl.hidden) return; const w = partEl.clientWidth; if (w === larguraAnt) return; larguraAnt = w; try { pl.partitura = window.Partitura.render(partEl, a); } catch (e) { partEl.innerHTML = '<p class="aviso">Não consegui desenhar a partitura deste trecho.</p>'; pl.partitura = null; } };
+      pl.desenharPartitura();
+      new ResizeObserver(() => pl.desenharPartitura()).observe(partEl);
+      const chk = $('#partitura-chk');
+      if (chk) chk.addEventListener('change', e => { p.partitura = e.target.checked; salvar(); partEl.hidden = !p.partitura; if (p.partitura) { larguraAnt = 0; pl.desenharPartitura(); } });
+    }
     raiz.addEventListener('resultado', ev => { mostrarResultado(a, ev.detail); if (opts.aoResultado) opts.aoResultado(ev.detail); });
     return pl;
   }
@@ -1451,6 +1464,19 @@
       <p class="aviso">${Nuvem.logado ? 'Salvo neste aparelho e enviado para a nuvem.' : Nuvem.estado === 'sem-config' ? 'Salvo neste aparelho.' : 'Salvo só neste aparelho. Entre na aba Progresso para guardar também na nuvem.'}</p>
     </div>`;
     $('#resultado').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    falarFeedback(r);
+  }
+  function falarFeedback(r) {
+    if (estado.prefs.feedbackFalado === false) return;
+    const cat = r.passou ? (r.parcial ? 'parcial' : 'passou') : (['acertos', 'regularidade', 'bpm', 'buracos', 'dinamica', 'equilibrio', 'pedal'].find(k => r.faltas.some(f => f.startsWith({ acertos: 'notas certas', regularidade: 'regularidade', bpm: 'tempo', buracos: 'buracos', dinamica: 'dinâmica', equilibrio: 'melodia', pedal: 'trocas de pedal' }[k]))) || 'acertos');
+    Narr.parar();
+    const id = 'feedback-' + cat;
+    Narr.verificar(id);
+    const tocar = () => {
+      if (Narr.temArquivo.get(id)) { Narr.audio = new Audio('audio/' + id + '.m4a'); Narr.audio.play().catch(() => {}); }
+      else if (C.feedback && C.feedback[cat]) Narr.falar(C.feedback[cat], () => {});
+    };
+    if (Narr.temArquivo.get(id) == null) setTimeout(tocar, 400); else tocar();
   }
 
   function historicoAula(id) {
@@ -1524,6 +1550,9 @@
           ${dias.map(d => { const v = porDia.get(d); const hpc = (v / maxMin) * 100; return `<div class="b ${d === hojeStr() ? 'hoje' : ''}" style="--h:${hpc}%"><i style="height:${hpc}%"></i>${v ? `<em>${Math.round(v)}</em>` : ''}</div>`; }).join('')}
         </div>
         <div class="dias">${dias.map(d => `<span>${d.slice(8)}/${d.slice(5, 7)}</span>`).join('')}</div>
+      </div>
+      <div style="display:grid;gap:10px"><h2>Níveis</h2>
+        <div class="niveis-prog">${(C.niveis || []).map(nv => { const ids = C.aulas.filter(a => C.modulos.some(m => m.n === a.modulo && (m.nivel || 0) === nv.n)).map(a => a.id); const ok = ids.filter(id => statusAula(id) === 'ok').length; return `<div class="nivel-prog"><div class="cab"><b>Nível ${nv.n} · ${esc(nv.titulo.split(':')[0])}</b><span class="mono">${ok} / ${ids.length}${ok === ids.length && ids.length ? ' · concluído' : ''}</span></div><div class="barra-prog" aria-hidden="true"><div style="width:${ids.length ? Math.round(100 * ok / ids.length) : 0}%"></div></div></div>`; }).join('')}</div>
       </div>
       <div style="display:grid;gap:10px"><h2>Aulas</h2>
         <div class="tabela-wrap"><table>
@@ -1945,7 +1974,7 @@
     const bpm = Math.max(20, Math.round(musica.midi.bpm));
     const final = e.chave === 'final';
     return {
-      id: e.id, titulo: e.titulo, tipo: 'pratica', bpm, compasso: Math.max(1, Math.round(cb)), maos: e.tipo, notas, secoes,
+      id: e.id, titulo: e.titulo, tipo: 'pratica', bpm, compasso: Math.max(1, Math.round(cb)), maos: e.tipo, notas, secoes, metro: { num: musica.midi.num, den: musica.midi.den }, tom: musica.midi.tom,
       metricas: ['tempo', 'forca'], chaveTempo: 'tempoMusica',
       passa: final ? { acertos: 90, regularidade: 80, bpm: Math.round(bpm * 0.95) } : { acertos: 90, regularidade: 80 },
       criterio: final ? `Notas certas ≥ 90% e regularidade ≥ 80%, a ♩ = ${Math.round(bpm * 0.95)} ou mais.` : 'Notas certas ≥ 90% e regularidade ≥ 80%, no tempo que for confortável.',
@@ -2196,7 +2225,7 @@
     garantir() { if (!this.hoje) { estado.jornada = { dia: hojeStr(), passo: 0, feitos: {} }; salvar(); } return estado.jornada; },
     minutosHoje() { return estado.sessoes.filter(s => s.dia === hojeStr() && (!s.aula.startsWith('m:') || s.jornada)).reduce((a, s) => a + (s.minutos || 0), 0); },
     bloqueado() { return this.minutosHoje() >= LIMITE_MIN; },
-    ehTecnica(a) { return a.tipo === 'pratica' && [1, 2, 7, 8, 11].includes(a.modulo) && a.id !== '1-1'; },
+    ehTecnica(a) { return a.tipo === 'pratica' && [1, 2, 8, 9, 12].includes(a.modulo) && a.id !== '1-1'; },
     ultimaSessao(id) { let t = ''; estado.sessoes.forEach(s => { if (s.aula === id && s.quando > t) t = s.quando; }); return t; },
     plano() {
       const feita = id => statusAula(id) === 'ok';
@@ -2229,8 +2258,27 @@
       return passos;
     },
     marcar(passo) { const j = this.garantir(); j.feitos[passo] = true; salvar(); },
-    feito(passo) { const j = this.hoje; return !!(j && j.feitos[passo]); }
+    feito(passo) { const j = this.hoje; return !!(j && j.feitos[passo]); },
+    inicioPasso(passo) { const j = this.garantir(); j.inicios = j.inicios || {}; if (!j.inicios[passo]) { j.inicios[passo] = Date.now(); salvar(); } return j.inicios[passo]; },
+    niveisConcluidos() {
+      return (C.niveis || []).filter(nv => { const ids = C.aulas.filter(a => C.modulos.some(m => m.n === a.modulo && (m.nivel || 0) === nv.n)).map(a => a.id); return ids.length && ids.every(id => statusAula(id) === 'ok'); }).map(nv => nv.n);
+    }
   };
+  let cronometro = null;
+  function ligarCronometro(passo, minutos, aoCumprir) {
+    if (cronometro) clearInterval(cronometro);
+    const el = $('#hoje-cron'); if (!el) return;
+    const ini = Jornada.inicioPasso(passo);
+    let cumpriu = false;
+    const tick = () => {
+      const s = Math.floor((Date.now() - ini) / 1000), alvo = minutos * 60;
+      const mm = String(Math.floor(s / 60)).padStart(2, '0'), ss = String(s % 60).padStart(2, '0');
+      el.textContent = `${mm}:${ss} de ${minutos}:00`;
+      el.dataset.estado = s >= alvo ? 'ok' : s >= alvo * 0.6 ? 'quase' : '';
+      if (s >= alvo && !cumpriu) { cumpriu = true; if (aoCumprir) aoCumprir(); }
+    };
+    tick(); cronometro = setInterval(tick, 1000);
+  }
 
   function renderHoje() {
     const el = $('#vista-hoje');
@@ -2265,16 +2313,31 @@
       el.querySelectorAll('[data-repetir]').forEach(b => b.addEventListener('click', () => { j.passo = +b.dataset.repetir; j.feitos[j.passo] = false; salvar(); renderHoje(); }));
       return;
     }
+    const novoNivel = Jornada.niveisConcluidos().find(n => !estado.niveisVistos.includes(n));
+    if (novoNivel) {
+      const nv = C.niveis.find(x => x.n === novoNivel);
+      el.innerHTML = `<div style="display:grid;gap:22px">${barra}
+        <div class="hoje-fim nivel-fim">
+          <span class="rotulo">Marco</span>
+          <h1>Nível ${nv.n} concluído: ${esc(nv.titulo.split(':')[0])}.</h1>
+          <p class="texto">${esc(nv.meta || '')}</p>
+          ${nv.narracao ? blocoNarracao('nivel-' + nv.n, 'Uma palavra sobre o que você conquistou', nv.narracao) : ''}
+          <div class="linha-botoes"><button class="btn primario" type="button" id="nivel-ok">Continuar para o nível ${nv.n + 1 <= 5 ? nv.n + 1 : nv.n} →</button></div>
+        </div></div>`;
+      $('#nivel-ok').addEventListener('click', () => { estado.niveisVistos.push(novoNivel); salvar(); renderHoje(); });
+      return;
+    }
     const p = plano[j.passo];
     const rodape = (podeContinuar, textoRepetir) => `<div class="hoje-rodape">
-        <span class="aviso" id="hoje-aviso">${podeContinuar ? 'Etapa feita. Pode seguir.' : 'Faça a etapa; o botão Continuar libera quando ela terminar.'}</span>
+        <span class="aviso" id="hoje-aviso"><span class="cron mono" id="hoje-cron"></span> ${podeContinuar ? 'Etapa feita. Pode seguir.' : 'Faça a etapa; o botão Continuar libera quando ela terminar ou quando o tempo dela se cumprir.'}</span>
         <div class="linha-botoes">${textoRepetir ? `<button class="btn" type="button" id="hoje-repetir">${esc(textoRepetir)}</button>` : ''}
           <button class="btn primario" type="button" id="hoje-continuar" ${podeContinuar ? '' : 'disabled'}>${j.passo + 1 < plano.length ? 'Continuar →' : 'Concluir o dia'}</button></div>
       </div>`;
     const cabPasso = `<div class="aula-cab"><span class="rotulo">Etapa ${j.passo + 1} de ${plano.length} · ${esc(p.titulo)} · ${p.min} min</span><h1>${esc(p.sub)}</h1></div>`;
     const liberar = () => { Jornada.marcar(j.passo); const b = $('#hoje-continuar'); if (b) b.disabled = false; const av = $('#hoje-aviso'); if (av) av.textContent = 'Etapa feita. Pode seguir.'; };
     const ligarRodape = () => {
-      $('#hoje-continuar').addEventListener('click', () => { if (playerAtual) { playerAtual.destruir(); playerAtual = null; } j.passo++; salvar(); renderHoje(); window.scrollTo(0, 0); });
+      $('#hoje-continuar').addEventListener('click', () => { if (cronometro) clearInterval(cronometro); if (playerAtual) { playerAtual.destruir(); playerAtual = null; } j.passo++; salvar(); renderHoje(); window.scrollTo(0, 0); });
+      ligarCronometro(j.passo, p.min, () => liberar());
     };
 
     if (p.tipo === 'corpo' || (p.tipo === 'aula' && AULAS.get(p.aula).tipo === 'guia')) {
