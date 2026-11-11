@@ -661,6 +661,16 @@
       out.regularidade = clamp(Math.round(100 - (dp / med) * 200), 0, 100);
       out.variacao = Math.round((dp / med) * 100);
       out.bpm = Math.round(60 / med);
+      // linha do tempo: desvio de cada nota em relação ao andamento médio (1 = no tempo)
+      out.linha = eventos.map((e, i) => {
+        const nome = e.notas.map(n => rotuloNota(n)).join('+');
+        if (i === 0 || e.onset == null || eventos[i - 1].onset == null) return { i, nome, dev: null, erros: e.erros };
+        const db = e.t - eventos[i - 1].t;
+        if (db <= 0 || db > 2.01) return { i, nome, dev: null, erros: e.erros, pausa: db > 2.01 };
+        return { i, nome, dev: ((e.onset - eventos[i - 1].onset) / 1000 / db) / med, erros: e.erros };
+      });
+      const tarde = out.linha.filter(x => x.dev != null && x.dev > 1.35), cedo = out.linha.filter(x => x.dev != null && x.dev < 0.72);
+      out.ondeTempo = { tarde: tarde.map(x => `${x.i + 1} (${x.nome})`), cedo: cedo.map(x => `${x.i + 1} (${x.nome})`) };
     }
     const porMao = { D: [], E: [] };
     recs.forEach(x => porMao[x.h].push(x));
@@ -755,7 +765,9 @@
       d.push(`O erro mais comum: ${top[0]}${top[1] > 1 ? ` (${top[1]} vezes)` : ''}. Toque só esse trecho bem devagar, olhando o dedo antes de tocar.`);
     }
     if (r.regularidade != null && aula.passa && aula.passa.regularidade && r.regularidade < aula.passa.regularidade) {
-      d.push(`O tempo variou em média ${r.variacao}% de uma nota para outra. Ligue o metrônomo e toque um pouco mais devagar, contando junto.`);
+      const o = r.ondeTempo || { tarde: [], cedo: [] };
+      const onde = [o.tarde.length ? `vieram atrasadas as notas ${o.tarde.slice(0, 4).join(', ')}${o.tarde.length > 4 ? '…' : ''}` : '', o.cedo.length ? `vieram cedo demais as notas ${o.cedo.slice(0, 4).join(', ')}${o.cedo.length > 4 ? '…' : ''}` : ''].filter(Boolean).join('; ');
+      d.push(`O tempo variou em média ${r.variacao}% de uma nota para outra${onde ? ': ' + onde : ''}. Veja a linha do tempo abaixo. Ligue o metrônomo, toque mais devagar e, onde atrasou, é quase sempre a mão procurando a tecla: olhe a próxima tecla antes de soltar a anterior.`);
     }
     if (r.bpm != null && aula.passa && aula.passa.bpm && r.bpm < aula.passa.bpm) {
       d.push(`Você tocou a ♩ = ${r.bpm}. Mantenha a regularidade e suba aos poucos até ♩ = ${aula.passa.bpm}; velocidade sem regularidade não conta.`);
@@ -852,6 +864,8 @@
       }));
       this.recs = [];
       this.pedais = [];
+      this.tempos = [];
+      this.bons = 0; this.ultimoAviso = 0;
       this.errosLista = [];
       this.idx = 0;
       this.abertos = new Map();
@@ -863,7 +877,7 @@
     definirMaos(h) { this.parar(); this.maos = h; this.prepararNotas(); this.batida = this.inicio - 0.4; this.desenhar(); this.atualizarStatus(); }
     get fator() { return estado.prefs[this.aula.chaveTempo || 'tempo'] ?? 1; }
     get bps() { return this.bpm * this.fator / 60; }
-    reiniciar() { this.parar(); this.prepararNotas(); this.batida = this.inicio - 0.4; this.resultado = null; this.desenhar(); this.atualizarStatus(); this.atualizarTransporte(); }
+    reiniciar() { this.parar(); this.prepararNotas(); this.batida = this.inicio - 0.4; this.resultado = null; this.desenhar(); this.atualizarStatus(); this.atualizarTransporte(); const m = $('#tr-msg', this.raiz); if (m) { m.innerHTML = 'O treinador avisa na hora: tecla errada, nota atrasada ou apressada.'; m.dataset.tipo = ''; } const b = $('#tr-barras', this.raiz); if (b) b.innerHTML = ''; }
     irPara(t) {
       const tocava = this.tocando; this.parar(); this.prepararNotas();
       if (this.modo === 'praticar') {
@@ -1020,18 +1034,66 @@
           const rec = { ...n, on: ts, off: null, vel: v };
           this.recs.push(rec); this.abertos.set(m, rec);
           this.flash.set(m, { ate: performance.now() + 350, cor: css('--ok') });
-          if (!ev.pendentes.size) { ev.ok = true; this.idx++; this.atualizarStatus(); }
+          if (!ev.pendentes.size) { ev.ok = true; this.avaliarTempo(ev, this.eventos[this.idx - 1]); this.idx++; this.atualizarStatus(); }
         } else if (ev.feitos.has(m)) {
           /* repetiu nota do mesmo acorde: ignora */
         } else {
           ev.erros++;
-          this.errosLista.push({ esperado: ev.notas.filter(x => ev.pendentes.has(x.m)).map(x => x.n).join(' + '), tocou: NOMES[m % 12] });
+          const esperadas = ev.notas.filter(x => ev.pendentes.has(x.m));
+          this.errosLista.push({ esperado: esperadas.map(x => x.n).join(' + '), tocou: NOMES[m % 12] });
           this.flash.set(m, { ate: performance.now() + 450, cor: css('--bad') });
+          this.avisar('errada', { esperadas, tocou: m });
         }
       } else if (tipo === 'off') {
         const rec = this.abertos.get(m);
         if (rec) { rec.off = ts; this.abertos.delete(m); }
       }
+    }
+    // ---- treinador em tempo real
+    avaliarTempo(ev, prev) {
+      if (!prev || prev.onset == null || ev.onset == null) return;
+      const db = ev.t - prev.t;
+      if (db <= 0 || db > 2.01 || ev.erros > 0) { this.desenharTreinador(); return; }
+      const ratio = ((ev.onset - prev.onset) / 1000) / db; // segundos por tempo
+      const ant = this.tempos.slice(-6);
+      const ref = ant.length >= 2 ? ant.slice().sort((a, b) => a - b)[Math.floor(ant.length / 2)] : 60 / (this.bpm * this.fator);
+      const dev = ratio / ref;
+      ev.dev = dev;
+      this.tempos.push(ratio);
+      if (dev > 1.35) { this.bons = 0; this.avisar('atrasou', { ev }); }
+      else if (dev < 0.72) { this.bons = 0; this.avisar('apressou', { ev }); }
+      else { this.bons++; if (this.bons === 8) this.avisar('bem', {}); }
+      this.desenharTreinador(dev);
+    }
+    avisar(tipo, info) {
+      const el = $('#tr-msg', this.raiz); if (!el) return;
+      let txt = '', ids = [];
+      if (tipo === 'errada') {
+        const alvo = info.esperadas[0];
+        const dist = alvo ? info.tocou - alvo.m : 0;
+        const dica = !alvo ? '' : dist === 0 ? '' : Math.abs(dist) === 1 ? (dist > 0 ? ' Era a tecla logo à esquerda.' : ' Era a tecla logo à direita.') : Math.abs(dist) === 12 ? ' Era a mesma nota, na outra oitava.' : dist > 0 ? ' Era mais para a esquerda.' : ' Era mais para a direita.';
+        txt = `<b>Tecla errada.</b> Era <b>${esc(info.esperadas.map(x => rotuloNota(x)).join(' + '))}</b>${alvo && alvo.f ? ` com o dedo ${alvo.f}` : ''}; você tocou ${esc(NOMES[info.tocou % 12])}.${dica}`;
+        ids = ['coach-errada'];
+        const slug = alvo && C.notasSlug ? C.notasSlug[alvo.n] : null;
+        if (slug) ids.push('coach-era-' + slug);
+        if (alvo && Math.abs(dist) === 1) ids.push(dist > 0 ? 'coach-abaixo' : 'coach-acima');
+        if (alvo && alvo.f) this.mostrarDedo = alvo;
+      } else if (tipo === 'atrasou') { txt = '<b>Atrasou.</b> Essa nota veio tarde: mantenha o pulso, sem parar para procurar a tecla.'; ids = ['coach-atrasou']; }
+      else if (tipo === 'apressou') { txt = '<b>Apressou.</b> Essa nota veio cedo: espere o tempo inteiro da anterior.'; ids = ['coach-apressou']; }
+      else if (tipo === 'bem') { txt = '<b>Muito bem.</b> Oito notas seguidas no tempo.'; ids = ['coach-bem']; }
+      el.innerHTML = txt; el.dataset.tipo = tipo;
+      el.classList.remove('pisca'); void el.offsetWidth; el.classList.add('pisca');
+      // voz: no máximo um aviso a cada 2,5 s
+      const agora = performance.now();
+      if (estado.prefs.treinadorVoz !== false && agora - this.ultimoAviso > 2500 && ids.length) {
+        this.ultimoAviso = agora;
+        (async () => { for (const id of ids) { Guia.cancelado = false; Guia.pularPasso = false; await Guia.falar(id, (C.coach || {})[id.replace('coach-', '')] || ''); } })();
+      }
+    }
+    desenharTreinador(dev) {
+      const el = $('#tr-barras', this.raiz); if (!el) return;
+      const devs = this.eventos.slice(0, this.idx + 1).filter(e => e.dev != null).slice(-14).map(e => e.dev);
+      el.innerHTML = devs.map(d => { const h = Math.max(6, Math.min(40, 20 + 20 * Math.log2(d))); const cls = d > 1.35 ? 'tarde' : d < 0.72 ? 'cedo' : 'ok'; return `<i class="${cls}" style="height:${h}px" title="${d > 1 ? '+' : ''}${Math.round((d - 1) * 100)}%"></i>`; }).join('');
     }
     ligarToque() {
       const notaEm = ev => {
@@ -1469,6 +1531,7 @@
           <label class="chk" title="Explica, demonstra, entra em Praticar e avança sozinho"><input type="checkbox" id="fluxo-chk" ${p.fluxo !== false ? 'checked' : ''}> Automático</label>
         </div>
         <div class="palco"><canvas aria-label="Teclado animado: as notas descem até as teclas que você deve apertar"></canvas></div>
+        <div class="treinador" id="treinador"><div class="tr-msg" id="tr-msg" aria-live="assertive">O treinador avisa na hora: tecla errada, nota atrasada ou apressada.</div><div class="tr-barras" id="tr-barras" aria-label="Últimas notas: altura da barra = quanto o tempo variou"></div></div>
         <div class="maos">${maoSVG('E')}<p class="legenda-mao" aria-live="polite"></p>${maoSVG('D')}</div>
         ${window.Partitura && window.Partitura.disponivel() && a.notas.length ? `<div class="partitura" id="partitura" ${p.partitura ? '' : 'hidden'} aria-label="Partitura do exercício"></div>` : ''}
         <div class="transporte">
@@ -1558,6 +1621,9 @@
     $('#resultado').innerHTML = `<div class="resultado" data-passou="${r.passou}">
       <div class="veredito"><span class="selo">${r.passou ? 'Passou' : 'Ainda não'}</span><h3>${r.passou ? (r.parcial ? 'Trecho dentro da meta. Para concluir a aula, toque do início ao fim.' : (a.textoPassou || 'Aula concluída. Pode seguir para a próxima.')) : 'Falta: ' + esc(r.faltas.join(' · '))}</h3></div>
       <div class="metricas">${met.join('')}</div>
+      ${r.linha ? `<div class="linha-tempo"><span class="rotulo">Linha do tempo · nota a nota (barra para cima = atrasou, para baixo = apressou, vermelho = tecla errada)</span>
+        <div class="lt-grade">${r.linha.map(x => { const dev = x.dev; const h = dev == null ? 0 : Math.max(-22, Math.min(22, 22 * Math.log2(dev))); const cls = x.erros ? 'erro' : dev == null ? 'neutro' : dev > 1.35 ? 'tarde' : dev < 0.72 ? 'cedo' : 'ok'; return `<div class="lt-col ${cls}" title="Nota ${x.i + 1}: ${esc(x.nome)}${dev != null ? ` · ${dev > 1 ? '+' : ''}${Math.round((dev - 1) * 100)}%` : ''}${x.erros ? ` · ${x.erros} erro(s)` : ''}"><i style="${h >= 0 ? `height:${h}px;bottom:50%` : `height:${-h}px;top:50%`}"></i><span>${x.i + 1}</span></div>`; }).join('')}</div>
+        <p class="aviso">Regularidade mede se o intervalo entre cada nota e a anterior acompanhou o ritmo escrito. Tocar devagar não tira pontos; parar para procurar a tecla, sim.</p></div>` : ''}
       ${linhas ? `<div class="dedos"><span class="rotulo">Força média por dedo (0 a 127)</span>${linhas}</div>` : ''}
       <div><span class="rotulo">O que fazer agora</span><ul class="dicas">${ds.map(d => `<li>${esc(d)}</li>`).join('')}</ul></div>
       <p class="aviso">${Nuvem.logado ? 'Salvo neste aparelho e enviado para a nuvem.' : Nuvem.estado === 'sem-config' ? 'Salvo neste aparelho.' : 'Salvo só neste aparelho. Entre na aba Progresso para guardar também na nuvem.'}</p>
@@ -2069,8 +2135,8 @@
     return {
       id: e.id, titulo: e.titulo, tipo: 'pratica', bpm, compasso: Math.max(1, Math.round(cb)), maos: e.tipo, notas, secoes, metro: { num: musica.midi.num, den: musica.midi.den }, tom: musica.midi.tom,
       metricas: ['tempo', 'forca'], chaveTempo: 'tempoMusica',
-      passa: final ? { acertos: 90, regularidade: 80, bpm: Math.round(bpm * 0.95) } : { acertos: 90, regularidade: 80 },
-      criterio: final ? `Notas certas ≥ 90% e regularidade ≥ 80%, a ♩ = ${Math.round(bpm * 0.95)} ou mais.` : 'Notas certas ≥ 90% e regularidade ≥ 80%, no tempo que for confortável.',
+      passa: final ? { acertos: 90, regularidade: 75, bpm: Math.round(bpm * 0.95) } : { acertos: 90, regularidade: 70 },
+      criterio: final ? `Notas certas ≥ 90% e regularidade ≥ 75%, a ♩ = ${Math.round(bpm * 0.95)} ou mais.` : 'Notas certas ≥ 90% e regularidade ≥ 70%, no tempo que for confortável.',
       textoPassou: final ? 'Música concluída no tempo original. Parabéns!' : 'Etapa concluída. Pode seguir para a próxima.'
     };
   }

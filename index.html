@@ -249,6 +249,30 @@ p { margin: 0; }
 .secoes-chips { display: flex; gap: 6px; flex-wrap: wrap; }
 .secoes-chips button { border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 4px 12px; font-size: 0.85rem; min-height: 34px; }
 .status { font-size: 0.95rem; color: var(--muted); min-height: 1.5em; }
+.treinador { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 16px; align-items: center; background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--line); border-radius: var(--radius); padding: 10px 14px; min-height: 56px; }
+.tr-msg { font-size: 1rem; color: var(--muted); }
+.tr-msg[data-tipo="errada"] { color: var(--bad); }
+.tr-msg[data-tipo="atrasou"], .tr-msg[data-tipo="apressou"] { color: var(--warn); }
+.tr-msg[data-tipo="bem"] { color: var(--ok); }
+.treinador:has(.tr-msg[data-tipo="errada"]) { border-left-color: var(--bad); }
+.treinador:has(.tr-msg[data-tipo="atrasou"]), .treinador:has(.tr-msg[data-tipo="apressou"]) { border-left-color: var(--warn); }
+.treinador:has(.tr-msg[data-tipo="bem"]) { border-left-color: var(--ok); }
+.tr-msg.pisca { animation: tr-pisca 0.5s ease-out; }
+@keyframes tr-pisca { 0% { transform: translateX(-4px); } 30% { transform: translateX(4px); } 100% { transform: none; } }
+.tr-barras { display: flex; align-items: flex-end; gap: 3px; height: 42px; }
+.tr-barras i { display: block; width: 7px; border-radius: 2px 2px 0 0; background: var(--ok); }
+.tr-barras i.tarde { background: var(--warn); } .tr-barras i.cedo { background: var(--lh); }
+.linha-tempo { display: grid; gap: 8px; }
+.lt-grade { display: flex; gap: 2px; align-items: stretch; height: 70px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); position: relative; overflow-x: auto; padding: 0 4px; }
+.lt-grade::before { content: ""; position: absolute; left: 0; right: 0; top: 50%; border-top: 1px dashed var(--muted); opacity: 0.5; }
+.lt-col { position: relative; flex: 1 0 10px; min-width: 10px; max-width: 28px; }
+.lt-col i { position: absolute; left: 15%; right: 15%; background: var(--ok); border-radius: 2px; }
+.lt-col.tarde i { background: var(--warn); } .lt-col.cedo i { background: var(--lh); } .lt-col.erro i { background: var(--bad); }
+.lt-col.erro::after { content: ""; position: absolute; left: 50%; top: 50%; width: 8px; height: 8px; margin: -4px 0 0 -4px; border-radius: 50%; background: var(--bad); }
+.lt-col span { position: absolute; left: 0; right: 0; bottom: -16px; text-align: center; font-family: var(--font-mono); font-size: 0.6rem; color: var(--muted); }
+.lt-col:nth-child(n+2):not(:nth-child(4n+1)) span { visibility: hidden; }
+.lt-grade { margin-bottom: 16px; }
+@media (max-width: 560px) { .treinador { grid-template-columns: 1fr; } }
 .player.leitura .palco, .player.leitura .maos { display: none; }
 .leitura-aviso { border-left: 3px solid var(--accent); padding-left: 12px; }
 .abertura-fig { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; display: grid; }
@@ -523,12 +547,12 @@ h2 { text-wrap: balance; }
   </div>
 </main>
 
-<script src="vendor/vexflow.js?v=202611111531"></script>
-<script src="partitura.js?v=202611111531"></script>
-<script src="vendor/supabase.js?v=202611111531"></script>
-<script src="config.js?v=202611111531"></script>
-<script src="dados.js?v=202611111531"></script>
-<script src="app.js?v=202611111531"></script>
+<script src="vendor/vexflow.js?v=202611111553"></script>
+<script src="partitura.js?v=202611111553"></script>
+<script src="vendor/supabase.js?v=202611111553"></script>
+<script src="config.js?v=202611111553"></script>
+<script src="dados.js?v=202611111553"></script>
+<script src="app.js?v=202611111553"></script>
 
 </body>
 </html>
