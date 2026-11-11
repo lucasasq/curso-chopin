@@ -1263,6 +1263,18 @@
         if (temE) item(corE, 'ESQUERDA');
         if (temD) item(corD, 'DIREITA');
       }
+      // etapa de uma mão só: aviso grande e a outra mão apagada
+      const soMao = this.maos !== 'todas' ? this.maos : (temD && !temE ? 'D' : temE && !temD ? 'E' : null);
+      if (soMao) {
+        const txt = soMao === 'D' ? 'SÓ A MÃO DIREITA' : 'SÓ A MÃO ESQUERDA';
+        ctx.font = `700 13px ${css('--font-mono')}`; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+        const lw = ctx.measureText(txt).width;
+        ctx.fillStyle = soMao === 'D' ? corD : corE; ctx.globalAlpha = 0.95;
+        ctx.beginPath(); ctx.roundRect ? ctx.roundRect(8, 5, lw + 18, 20, 10) : ctx.rect(8, 5, lw + 18, 20); ctx.fill();
+        ctx.globalAlpha = 1; ctx.fillStyle = '#10121a'; ctx.fillText(txt, 17, 15);
+      }
+      const painelMaos = $('.maos', this.raiz);
+      if (painelMaos) { painelMaos.classList.toggle('so-D', soMao === 'D'); painelMaos.classList.toggle('so-E', soMao === 'E'); }
       // seções
       ctx.font = `600 12px ${css('--font-mono')}`; ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
       for (const s of this.secoes) {
