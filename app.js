@@ -2429,8 +2429,16 @@
       const emAndamento = ORDEM.filter(id => statusAula(id) === 'andamento' && ![tecnica, exercicio, '1-1'].includes(id));
       emAndamento.sort((x, y) => this.ultimaSessao(y).localeCompare(this.ultimaSessao(x)));
       if (emAndamento[0]) passos.push({ tipo: 'aula', aula: emAndamento[0], min: 10, titulo: 'Revisão', sub: AULAS.get(emAndamento[0]).titulo });
+      // aulas extras: depois da jornada, enquanto não bater o limite do dia
+      const j = this.hoje;
+      (j && j.extras || []).forEach(id => { if (AULAS.has(id)) passos.push({ tipo: 'aula', aula: id, min: 10, titulo: 'Extra', sub: AULAS.get(id).titulo }); });
       return passos;
     },
+    proximaExtra(plano) {
+      const usadas = new Set(plano.map(p => p.aula).filter(Boolean));
+      return ORDEM.find(id => id !== '1-1' && !usadas.has(id) && statusAula(id) !== 'ok') || null;
+    },
+    adicionarExtra(id) { const j = this.garantir(); j.extras = j.extras || []; j.extras.push(id); j.passo = this.plano().length - 1; salvar(); },
     marcar(passo) { const j = this.garantir(); j.feitos[passo] = true; salvar(); },
     feito(passo) { const j = this.hoje; return !!(j && j.feitos[passo]); },
     inicioPasso(passo) { const j = this.garantir(); j.inicios = j.inicios || {}; if (!j.inicios[passo]) { j.inicios[passo] = Date.now(); salvar(); } return j.inicios[passo]; },
@@ -2478,13 +2486,25 @@
       return;
     }
     if (j.passo >= plano.length) {
+      const prox = Jornada.proximaExtra(plano);
+      const restam = Math.max(0, Math.round(LIMITE_MIN - min));
       el.innerHTML = `<div style="display:grid;gap:22px">${barra}
         <div class="hoje-fim">
-          <h1>Jornada de hoje concluída.</h1>
-          <p class="texto">${Math.round(min)} minutos feitos. Ainda cabem ${Math.max(0, Math.round(LIMITE_MIN - min))} minutos no limite de hoje: repita uma etapa, ou pare por aqui e toque músicas.</p>
-          <div class="linha-botoes">${plano.map((p, i) => `<button class="btn" type="button" data-repetir="${i}">Repetir ${esc(p.titulo.toLowerCase())}</button>`).join('')}<a class="btn primario" href="#musicas">Tocar músicas</a></div>
+          <h1>${(j.extras || []).length ? 'Etapa extra concluída.' : 'Jornada de hoje concluída.'}</h1>
+          <p class="texto">${Math.round(min)} minutos feitos. Ainda cabem ${restam} minutos no limite de hoje${prox ? ': o curso segue com a próxima aula' : ''}.</p>
+          <div class="linha-botoes">
+            ${prox ? `<button class="btn primario" type="button" id="hoje-proxima">Próxima aula: ${idTexto(prox)} ${esc(AULAS.get(prox).titulo)} → ${Fluxo.ligado() ? '<span class="mono" id="hoje-proxima-seg">8</span>' : ''}</button>` : ''}
+            ${plano.map((p, i) => `<button class="btn" type="button" data-repetir="${i}">Repetir ${esc(p.titulo.toLowerCase())}</button>`).join('')}
+            <a class="btn" href="#musicas">Tocar músicas</a>
+          </div>
         </div></div>`;
-      el.querySelectorAll('[data-repetir]').forEach(b => b.addEventListener('click', () => { j.passo = +b.dataset.repetir; j.feitos[j.passo] = false; salvar(); renderHoje(); }));
+      el.querySelectorAll('[data-repetir]').forEach(b => b.addEventListener('click', () => { if (cronometro) clearInterval(cronometro); j.passo = +b.dataset.repetir; j.feitos[j.passo] = false; salvar(); renderHoje(); }));
+      const bp = $('#hoje-proxima');
+      if (bp) {
+        const seguir = () => { if (cronometro) clearInterval(cronometro); Jornada.adicionarExtra(prox); renderHoje(); window.scrollTo(0, 0); };
+        bp.addEventListener('click', seguir);
+        if (Fluxo.ligado()) { let n = 8; if (cronometro) clearInterval(cronometro); cronometro = setInterval(() => { n--; const sp = $('#hoje-proxima-seg'); if (sp) sp.textContent = n; if (n <= 0) seguir(); }, 1000); }
+      }
       return;
     }
     const novoNivel = Jornada.niveisConcluidos().find(n => !estado.niveisVistos.includes(n));
