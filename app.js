@@ -2096,26 +2096,38 @@
     const cb = midi.num * 4 / midi.den;
     const md = dedilhar(notasDaMao(musica, config.md, 'D'), 'D'), me = dedilhar(notasDaMao(musica, config.me, 'E'), 'E');
     const todas = md.concat(me);
-    const plano = { cb, md, me, sig: hashCurto([config.md, config.me, config.nivel, config.tamanho].join('/')), partes: [], etapas: [], compassos: 0 };
+    const plano = { cb, md, me, sig: hashCurto(['v2', config.md, config.me, config.nivel, config.tamanho].join('/')), partes: [], etapas: [], compassos: 0 };
     if (todas.length) {
       const c0 = Math.floor(Math.min(...todas.map(n => n.t)) / cb + 1e-6);
       const c1 = Math.floor(Math.max(...todas.map(n => n.t)) / cb + 1e-6);
       plano.compassos = c1 - c0 + 1;
-      for (let c = c0, k = 1; c <= c1; c += config.tamanho, k++) {
-        const ini = c, fim = Math.min(c + config.tamanho, c1 + 1);
-        const tem = lista => lista.some(n => n.t >= ini * cb - 1e-6 && n.t < fim * cb - 1e-6);
-        plano.partes.push({ k, ini, fim, D: tem(md), E: tem(me) });
+      // partes com notas suficientes para treinar: junta compassos até ter pelo menos MIN notas (até 3× o tamanho)
+      const conta = (lista, ini, fim) => lista.filter(n => n.t >= ini * cb - 1e-6 && n.t < fim * cb - 1e-6).length;
+      const MIN = 12, MAXB = config.tamanho * 3;
+      for (let c = c0, k = 1; c <= c1; k++) {
+        let fim = Math.min(c + config.tamanho, c1 + 1);
+        while (fim <= c1 && fim - c < MAXB && conta(md, c, fim) + conta(me, c, fim) < MIN) fim++;
+        const nD = conta(md, c, fim), nE = conta(me, c, fim);
+        plano.partes.push({ k, ini: c, fim, D: nD > 0, E: nE > 0, nD, nE });
+        c = fim;
+      }
+      // última parte magra: funde com a anterior
+      if (plano.partes.length > 1) {
+        const u = plano.partes[plano.partes.length - 1], a = plano.partes[plano.partes.length - 2];
+        if (u.nD + u.nE < MIN) { a.fim = u.fim; a.nD += u.nD; a.nE += u.nE; a.D = a.nD > 0; a.E = a.nE > 0; plano.partes.pop(); }
       }
       const P = plano.partes;
       const add = (chave, titulo, tipo, de, ate, grupo) => plano.etapas.push({ chave, titulo, tipo, de, ate, grupo });
       P.forEach((pt, i) => {
         const nome = `Parte ${pt.k}`;
+        const comp = `compassos ${pt.ini + 1}–${pt.fim}`;
+        const MIN_MAO = 8; // uma mão com menos de 8 notas na parte só treina junto com a outra
+        if (!pt.D && !pt.E) return;
         if (pt.D && pt.E) {
-          add(`p${pt.k}-D`, `${nome}, mão direita`, 'D', i, i, 'mao');
-          add(`p${pt.k}-E`, `${nome}, mão esquerda`, 'E', i, i, 'mao');
-          add(`p${pt.k}-DE`, `${nome}, mãos juntas`, 'DE', i, i, 'juntas');
-        } else if (pt.D || pt.E) add(`p${pt.k}`, `${nome}, ${pt.D ? 'mão direita' : 'mão esquerda'}`, pt.D ? 'D' : 'E', i, i, 'mao');
-        else return;
+          if (pt.nD >= MIN_MAO) add(`p${pt.k}-D`, `${nome}, mão direita (${comp})`, 'D', i, i, 'mao');
+          if (pt.nE >= MIN_MAO) add(`p${pt.k}-E`, `${nome}, mão esquerda (${comp})`, 'E', i, i, 'mao');
+          add(`p${pt.k}-DE`, `${nome}, mãos juntas (${comp})`, 'DE', i, i, 'juntas');
+        } else add(`p${pt.k}`, `${nome}, ${pt.D ? 'mão direita' : 'mão esquerda'} (${comp})`, pt.D ? 'D' : 'E', i, i, 'mao');
         if (i > 0) add(`p${P[i - 1].k}-${pt.k}`, `Ligar partes ${P[i - 1].k} e ${pt.k}`, 'DE', i - 1, i, 'ligar');
         if (P.length > 4 && i >= 3 && (i + 1) % 4 === 0) add(`b${P[i - 3].k}-${pt.k}`, `Bloco: partes ${P[i - 3].k} a ${pt.k}`, 'DE', i - 3, i, 'bloco');
       });
@@ -2585,7 +2597,7 @@
   }
 
   /* ------------------------------------------------------------ início */
-  window.__curso = { avaliar, Midi, Nuvem, estado, lerMidi, planoMusica, Guia, Jornada, get player() { return playerAtual; } };
+  window.__curso = { avaliar, Midi, Nuvem, estado, lerMidi, planoMusica, configPadrao, aulaDaEtapa, Guia, Jornada, get player() { return playerAtual; } };
   if ('speechSynthesis' in window) { try { speechSynthesis.getVoices(); speechSynthesis.onvoiceschanged = () => {}; } catch (e) { /* nada */ } }
   if ('serviceWorker' in navigator && location.protocol === 'https:') { try { navigator.serviceWorker.register('sw.js').catch(() => {}); } catch (e) { /* nada */ } }
   Midi.iniciar(false);
