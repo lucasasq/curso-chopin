@@ -330,6 +330,36 @@ textarea {
 .form-conta { display: grid; gap: 10px; justify-items: start; }
 .form-conta .campo { display: grid; gap: 4px; }
 
+/* ---------- mãos ---------- */
+.maos { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr) minmax(0, 1fr); gap: 4px 16px; align-items: center; }
+.mao { width: 100%; max-width: 210px; height: auto; justify-self: center; overflow: visible; }
+.mao .palma { fill: var(--surface-2); stroke: var(--key-edge); stroke-width: 1.5; }
+.mao .contorno { stroke: var(--key-edge); stroke-linecap: round; }
+.mao .forma { stroke: var(--surface-2); stroke-linecap: round; transition: stroke 0.08s; }
+.mao .ponta { fill: var(--surface); stroke: var(--key-edge); stroke-width: 1.5; }
+.mao .num { font: 600 13px var(--font-mono); text-anchor: middle; fill: var(--muted); }
+.mao .nota { font: 700 14px var(--font-body); text-anchor: middle; fill: var(--ink); }
+.mao .nome-mao { font: 500 12px var(--font-mono); text-anchor: middle; fill: var(--muted); letter-spacing: 0.06em; text-transform: uppercase; }
+.mao-D .dedo.ativo .forma { stroke: var(--rh); }
+.mao-E .dedo.ativo .forma { stroke: var(--lh); }
+.dedo.ativo .ponta { fill: var(--ink); stroke: var(--ink); }
+.dedo.ativo .num { fill: var(--bg); }
+.legenda-mao { text-align: center; font-size: 0.95rem; color: var(--ink); min-height: 1.5em; text-wrap: balance; }
+@media (max-width: 560px) {
+  .maos { grid-template-columns: 1fr 1fr; }
+  .legenda-mao { grid-column: 1 / -1; grid-row: 2; }
+}
+@media (prefers-reduced-motion: reduce) { .mao .forma { transition: none; } }
+
+/* ---------- aula guiada ---------- */
+.guia-barra {
+  display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; justify-content: space-between;
+  background: var(--accent-soft); border-radius: var(--radius); padding: 12px 14px; min-height: 68px;
+}
+.guia-barra .aviso { flex: 1 1 260px; color: var(--ink); }
+.guia-passo { display: grid; gap: 4px; flex: 1 1 320px; min-width: 0; }
+.legenda { font-size: 1.08rem; line-height: 1.45; font-weight: 500; color: var(--ink); max-width: 70ch; }
+
 /* ---------- músicas ---------- */
 .oculto { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; pointer-events: none; }
 .importar { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 18px; display: grid; gap: 12px; }
@@ -358,6 +388,19 @@ select.entrada { appearance: auto; }
 .etapa .n { font-family: var(--font-mono); font-size: 0.8rem; color: var(--muted); font-variant-numeric: tabular-nums; }
 .etapa .t { min-width: 0; }
 h2 { text-wrap: balance; }
+
+/* ---------- níveis, peças e biblioteca ---------- */
+.nivel-cab { display: grid; gap: 6px; }
+.nivel-cab h2 { font-size: clamp(1.7rem, 3vw, 2.3rem); }
+.peca-box {
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px 20px;
+  display: grid; gap: 14px; border-left: 4px solid var(--accent);
+}
+.peca-info { display: grid; gap: 6px; }
+.peca-titulo { font-family: var(--font-display); font-weight: 500; font-size: 1.5rem; font-variation-settings: "opsz" 48; }
+.biblioteca { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+.peca-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; display: grid; gap: 10px; align-content: start; min-width: 0; }
+.peca-card h3 { font-family: var(--font-display); font-size: 1.25rem; font-weight: 500; font-variation-settings: "opsz" 48; margin-top: 2px; }
 
 @media (max-width: 860px) {
   .abertura, .aula-info { grid-template-columns: minmax(0, 1fr); }

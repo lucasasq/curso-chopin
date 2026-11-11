@@ -15,6 +15,8 @@
   const idTexto = id => id.replace('-', '.');
   let rotuloAula = id => 'aula ' + idTexto(id); // redefinido na seção de músicas
   const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+  const agoraS = () => performance.now() / 1000;
+  const rotuloNota = n => (n.m % 12 === 0 && n.n === 'Dó') ? 'Dó' + (Math.floor(n.m / 12) - 1) : n.n;
 
   /* ------------------------------------------------------------ armazenamento */
   const store = {
@@ -31,6 +33,12 @@
   const hojeStr = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
   function statusAula(id) {
+    const a = AULAS.get(id);
+    if (a && a.tipo === 'repertorio') {
+      const m = musicaDaPeca(a.peca); if (!m) return 'nova';
+      const { feitas, total } = progressoMusica(m);
+      return total && feitas >= total ? 'ok' : (feitas || estado.sessoes.some(s => s.aula.startsWith('m:' + m.id + ':'))) ? 'andamento' : 'nova';
+    }
     const st = estado.status[id];
     if (st && st.concluida) return 'ok';
     if (estado.sessoes.some(s => s.aula === id)) return 'andamento';
@@ -179,6 +187,12 @@
   const Som = {
     ctx: null,
     iniciar() {
+      // iPhone/iPad: sem isso, o modo silencioso deixa o som do site mudo
+      try { if (navigator.audioSession && navigator.audioSession.type !== 'playback') navigator.audioSession.type = 'playback'; } catch (e) { /* nada */ }
+      if (!this.destravado && /iP(hone|ad|od)|Macintosh/.test(navigator.userAgent) && 'ontouchend' in document) {
+        this.destravado = true;
+        try { const a = new Audio('data:audio/wav;base64,UklGRrQBAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YZABAACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICA'); a.loop = true; a.setAttribute('playsinline', ''); a.play().catch(() => {}); this.silencio = a; } catch (e) { /* nada */ }
+      }
       if (!this.ctx) {
         const AC = window.AudioContext || window.webkitAudioContext;
         if (!AC) return null;
@@ -262,13 +276,94 @@
       if (!('speechSynthesis' in window)) { acabou(); return; }
       const u = new SpeechSynthesisUtterance(texto);
       u.lang = 'pt-BR'; u.rate = 1;
-      const vozes = speechSynthesis.getVoices();
-      const v = vozes.find(x => /luciana/i.test(x.name)) || vozes.find(x => x.lang === 'pt-BR') || vozes.find(x => /^pt/i.test(x.lang));
+      const v = vozPt();
       if (v) u.voice = v;
       u.onend = acabou; u.onerror = acabou;
       speechSynthesis.speak(u);
     }
   };
+  function vozPt() {
+    try {
+      const vozes = speechSynthesis.getVoices();
+      return vozes.find(x => /luciana/i.test(x.name)) || vozes.find(x => x.lang === 'pt-BR' || x.lang === 'pt_BR') || vozes.find(x => /^pt/i.test(x.lang)) || null;
+    } catch (e) { return null; }
+  }
+  const espera = ms => new Promise(r => setTimeout(r, ms));
+
+  /* ------------------------------------------------------------ aula guiada: fala por passo + demonstração */
+  const Guia = {
+    ativo: false, cancelado: false, pularPasso: false, atual: null, cache: new Map(),
+    async falar(id, texto) {
+      const ctx = Som.iniciar();
+      let buf = this.cache.get(id);
+      if (buf === undefined) {
+        buf = null;
+        if (ctx && location.protocol !== 'file:') {
+          try {
+            const r = await fetch('audio/' + id + '.m4a');
+            if (r.ok && !/text\/html/.test(r.headers.get('content-type') || '')) buf = await ctx.decodeAudioData(await r.arrayBuffer());
+          } catch (e) { buf = null; }
+        }
+        this.cache.set(id, buf);
+      }
+      if (this.cancelado || this.pularPasso) return;
+      if (buf) {
+        return new Promise(res => {
+          const fonte = ctx.createBufferSource(); fonte.buffer = buf;
+          fonte.connect(ctx.destination);
+          let feito = false; const fim = () => { if (!feito) { feito = true; this.atual = null; res(); } };
+          fonte.onended = fim;
+          this.atual = { parar: () => { try { fonte.stop(); } catch (e) { /* já parou */ } fim(); } };
+          fonte.start();
+        });
+      }
+      if ('speechSynthesis' in window) {
+        return new Promise(res => {
+          const u = new SpeechSynthesisUtterance(texto);
+          u.lang = 'pt-BR'; const v = vozPt(); if (v) u.voice = v;
+          let feito = false; const fim = () => { if (!feito) { feito = true; this.atual = null; res(); } };
+          u.onend = fim; u.onerror = fim;
+          this.atual = { parar: () => { try { speechSynthesis.cancel(); } catch (e) { /* nada */ } fim(); } };
+          speechSynthesis.speak(u);
+          setTimeout(fim, 2500 + texto.length * 85); // alguns navegadores não avisam quando a voz termina
+        });
+      }
+      return espera(1500 + texto.length * 60);
+    },
+    pular() { this.pularPasso = true; if (this.atual) this.atual.parar(); if (playerAtual) playerAtual.interromperTrecho(); },
+    parar() { if (!this.ativo) return; this.cancelado = true; this.pular(); }
+  };
+  async function rodarGuia(a, pl) {
+    Narr.parar();
+    Guia.cancelado = false; Guia.ativo = true;
+    try { if ('speechSynthesis' in window && !Guia.cache.size) speechSynthesis.speak(new SpeechSynthesisUtterance(' ')); } catch (e) { /* iOS: destrava a voz dentro do toque */ }
+    for (let i = 0; i < a.guia.length && !Guia.cancelado; i++) {
+      const g = a.guia[i];
+      Guia.pularPasso = false;
+      barraGuia(a, i);
+      pl.mostrarTeclas(g.mostrar);
+      await Guia.falar(`aula-${a.id}-g${i + 1}`, g.fala);
+      if (Guia.cancelado) break;
+      if (g.tocar && !Guia.pularPasso) { await pl.tocarTrecho(g.tocar[0], g.tocar[1]); if (!Guia.cancelado) await espera(500); }
+      else if (!Guia.pularPasso) await espera(350);
+    }
+    const terminou = !Guia.cancelado;
+    Guia.ativo = false; Guia.cancelado = false;
+    pl.mostrarTeclas(terminou ? a.guia[a.guia.length - 1].mostrar : null);
+    barraGuia(a, -1, terminou);
+  }
+  function barraGuia(a, i, terminou) {
+    const el = $('#guia-barra'); if (!el) return;
+    if (i < 0) {
+      el.innerHTML = `<button class="btn primario" type="button" data-guia="iniciar">▶ Aula guiada</button>
+        <span class="aviso">${terminou ? 'Pronto. Agora toque em <b>▶ Praticar</b> e faça você.' : 'A narração explica cada passo e o teclado mostra junto: teclas acesas com os dedos e trechos tocados.'}</span>`;
+      return;
+    }
+    el.innerHTML = `<div class="guia-passo"><span class="rotulo">Aula guiada · passo ${i + 1} de ${a.guia.length}</span>
+        <p class="legenda">${esc(a.guia[i].fala)}</p></div>
+      <div class="linha-botoes"><button class="btn" type="button" data-guia="pular">Pular ›</button><button class="btn" type="button" data-guia="parar">Parar</button></div>`;
+  }
+
   const ICONE_PLAY = '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M4 2.5v11l9.5-5.5z"/></svg>';
   const ICONE_PAUSA = '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M3.5 2.5h3.2v11H3.5zm5.8 0h3.2v11H9.3z"/></svg>';
   function blocoNarracao(id, titulo, texto) {
@@ -315,7 +410,9 @@
       const cmd = d[0] & 0xf0;
       if (cmd === 0x90 && d[2] > 0) { this.teclas.set(d[1], d[2]); this.emitir('on', d[1], d[2], ts); }
       else if (cmd === 0x80 || (cmd === 0x90 && d[2] === 0)) { this.teclas.delete(d[1]); this.emitir('off', d[1], 0, ts); }
+      else if (cmd === 0xB0 && d[1] === 64) { const baixo = d[2] >= 64; if (baixo !== this.pedal) { this.pedal = baixo; this.emitir('pedal', 64, d[2], ts); } }
     },
+    pedal: false,
     emitir(tipo, m, v, ts) { this.ouvintes.forEach(f => f(tipo, m, v, ts)); },
     definir(est) {
       this.estado = est;
@@ -378,7 +475,7 @@
       ctx.strokeStyle = cor.borda; ctx.lineWidth = 1;
       ctx.strokeRect(p.x + 0.5, y, p.w - 1, h);
       if (mk && mk.contorno) { ctx.strokeStyle = mk.contorno; ctx.lineWidth = 3; ctx.strokeRect(p.x + 2, y + 2, p.w - 4, h - 4); }
-      const rot = (mk && mk.rotulo) || (opts.nomes ? NOMES[m % 12] : (m % 12 === 0 ? nomeMidi(m) : ''));
+      const rot = (mk && mk.rotulo) || (m % 12 === 0 ? nomeMidi(m) : (opts.nomes ? NOMES[m % 12] : ''));
       if (rot && p.w > 18) {
         ctx.fillStyle = mk && mk.textoCor ? mk.textoCor : '#5b5f6a';
         ctx.font = `600 ${Math.min(13, p.w * 0.36)}px ${css('--font-body')}`;
@@ -413,7 +510,7 @@
   }
 
   /* ------------------------------------------------------------ avaliação */
-  function avaliar(aula, eventos, recs) {
+  function avaliar(aula, eventos, recs, pedais = []) {
     const n = eventos.length;
     const certos = eventos.filter(e => e.erros === 0).length;
     const erros = eventos.reduce((s, e) => s + e.erros, 0);
@@ -484,6 +581,24 @@
         out.dinamica = dx && da ? Math.max(0, Math.round(100 * num / Math.sqrt(dx * da))) : 0;
       }
     }
+    // equilíbrio: a mão direita (melodia) mais forte que a esquerda, em %
+    if (aula.metricas.includes('equilibrio')) {
+      const med = h => { const vs = recs.filter(x => x.h === h && x.vel != null).map(x => x.vel); return vs.length ? vs.reduce((a, b) => a + b, 0) / vs.length : null; };
+      const d = med('D'), e = med('E');
+      if (d != null && e != null && e > 0) out.equilibrio = Math.round(100 * (d - e) / e);
+    }
+    // pedal sincopado: depois de cada ataque novo (exceto o primeiro), o pedal sobe e desce dentro de 600 ms
+    if (aula.metricas.includes('pedal') && pedais.length) {
+      const ataques = eventos.filter(ev => ev.onset != null).map(ev => ev.onset).sort((a, b) => a - b).slice(1);
+      let certas = 0;
+      for (const t of ataques) {
+        const sobe = pedais.find(pd => !pd.baixo && pd.ts >= t - 80 && pd.ts <= t + 600);
+        const desce = sobe && pedais.find(pd => pd.baixo && pd.ts > sobe.ts && pd.ts <= t + 900);
+        if (sobe && desce) certas++;
+      }
+      out.pedal = ataques.length ? Math.round(100 * certas / ataques.length) : null;
+      out.pedalTrocas = pedais.filter(pd => !pd.baixo).length;
+    } else if (aula.metricas.includes('pedal')) out.pedal = null;
     // veredito
     const p = aula.passa || {};
     const faltas = [];
@@ -492,6 +607,8 @@
     if (p.bpm != null && (out.bpm ?? 0) < p.bpm) faltas.push(`tempo ♩ = ${out.bpm ?? '—'} (meta ♩ = ${p.bpm})`);
     if (p.buracosMax != null && (out.buracos ?? 0) > p.buracosMax) faltas.push(`${out.buracos} buracos no legato (máximo ${p.buracosMax})`);
     if (p.dinamica != null && (out.dinamica ?? 0) < p.dinamica) faltas.push(`dinâmica ${out.dinamica ?? 0}% (meta ${p.dinamica}%)`);
+    if (p.equilibrio != null && (out.equilibrio ?? -100) < p.equilibrio) faltas.push(`melodia ${out.equilibrio == null ? '—' : out.equilibrio + '%'} mais forte que o acompanhamento (meta ${p.equilibrio}%)`);
+    if (p.pedal != null && out.pedal != null && out.pedal < p.pedal) faltas.push(`trocas de pedal certas ${out.pedal}% (meta ${p.pedal}%)`);
     out.faltas = faltas;
     out.passou = faltas.length === 0;
     return out;
@@ -529,8 +646,34 @@
     if (r.dinamica != null && aula.passa && aula.passa.dinamica && r.dinamica < aula.passa.dinamica) {
       d.push(`A força das notas acompanhou pouco o desenho pedido (${r.dinamica}%). Exagere: o fraco bem fraco, o forte com o peso do braço.`);
     }
+    if (r.equilibrio != null && aula.passa && aula.passa.equilibrio != null && r.equilibrio < aula.passa.equilibrio) {
+      d.push(r.equilibrio < 0 ? 'A esquerda ficou mais forte que a direita. Toque a esquerda com o braço pousado, quase sem cair, e a melodia com peso.' : `A melodia ficou só ${r.equilibrio}% mais forte que o acompanhamento. Exagere a diferença: a esquerda sussurra, a direita canta.`);
+    }
+    if (r.pedal != null && aula.passa && aula.passa.pedal != null && r.pedal < aula.passa.pedal) {
+      d.push(`Só ${r.pedal}% das trocas de pedal vieram logo depois do acorde novo. Mãos descem, pé sobe, pé desce: conte “um, e” em cada acorde.`);
+    }
+    if (aula.metricas.includes('pedal') && r.pedal == null) d.push('Não recebi o pedal pelo cabo: o site não conseguiu avaliar as trocas. Se o seu piano tem pedal, confira se ele envia MIDI (controle 64).');
     if (!d.length) d.push(r.passou ? 'Tudo dentro da meta. Na próxima, tente o mesmo com os olhos fechados nas últimas repetições.' : 'Continue praticando: os números vão subir.');
     return d;
+  }
+
+
+  /* ------------------------------------------------------------ mãos desenhadas (dedos 1 a 5) */
+  // Mão vista de cima, palma para baixo como no piano: na direita o polegar fica à esquerda, na esquerda, à direita.
+  // [dedo, x da base, y da base, x da ponta, y da ponta, espessura]
+  const DEDOS_GEO = [[1, 72, 152, 28, 116, 27], [2, 84, 124, 80, 54, 24], [3, 112, 122, 112, 40, 25], [4, 140, 124, 144, 50, 24], [5, 166, 132, 178, 76, 22]];
+  function maoSVG(h) {
+    const X = x => (h === 'D' ? x : 220 - x);
+    const linha = (cls, d, extra = 0) => `<line class="${cls}" x1="${X(d[1])}" y1="${d[2]}" x2="${X(d[3])}" y2="${d[4]}" stroke-width="${d[5] + extra}"/>`;
+    return `<svg viewBox="0 0 220 214" class="mao mao-${h}" role="img" aria-label="${h === 'D' ? 'Mão direita' : 'Mão esquerda'}: polegar é o dedo 1, mindinho é o dedo 5">
+      ${DEDOS_GEO.map(d => linha('contorno', d, 3)).join('')}
+      <rect class="palma" x="${h === 'D' ? 60 : 220 - 60 - 126}" y="112" width="126" height="84" rx="34"/>
+      ${DEDOS_GEO.map(d => `<g class="dedo" data-dedo="${h}${d[0]}">${linha('forma', d)}
+        <circle class="ponta" cx="${X(d[3])}" cy="${d[4]}" r="11.5"/>
+        <text class="num" x="${X(d[3])}" y="${d[4] + 4.6}">${d[0]}</text>
+        <text class="nota" x="${X(d[3])}" y="${d[4] - 19}"></text></g>`).join('')}
+      <text class="nome-mao" x="${X(124)}" y="${160}">${h === 'D' ? 'direita' : 'esquerda'}</text>
+    </svg>`;
   }
 
   /* ------------------------------------------------------------ player */
@@ -543,6 +686,9 @@
       this.secoes = aula.secoes || [];
       this.cv = $('canvas', raiz);
       this.flash = new Map();
+      this.destaque = null; this.limite = null; this.semContagem = false; this.aoFimTrecho = null;
+      this.nomePorTecla = new Map(aula.notas.map(n => [n.m, rotuloNota(n)]));
+      this.assinaturaMaos = '';
       this.prepararNotas();
       this.batida = this.inicio - 0.4;
       this.ouvinte = (tipo, m, v, ts) => this.midi(tipo, m, v, ts);
@@ -573,6 +719,7 @@
         t: g.t, notas: g.notas, pendentes: new Set(g.notas.map(n => n.m)), feitos: new Set(), onset: null, erros: 0, ok: false
       }));
       this.recs = [];
+      this.pedais = [];
       this.errosLista = [];
       this.idx = 0;
       this.abertos = new Map();
@@ -601,18 +748,54 @@
       if (this.modo === 'ouvir' && this.batida >= this.fim - 0.01) this.reiniciar();
       this.terminou = false;
       this.tocando = true;
-      if (this.batida <= this.inicio) this.batida = this.inicio - this.compasso; // um compasso de contagem
-      this.ancora = { b: this.batida, t: ctx.currentTime + 0.08 };
+      if (!this.semContagem) this.destaque = null;
+      if (!this.semContagem && this.batida <= this.inicio) this.batida = this.inicio - this.compasso; // um compasso de contagem
+      this.ancora = { b: this.batida, t: agoraS() + 0.08 };
       this.agendadoAte = this.batida;
       this.ultimoQuadro = performance.now();
       if (this.modo === 'praticar') {
         if (!this.sessaoInicio) this.sessaoInicio = Date.now();
-        if (estado.prefs.metronomo) Player.metronomoLivre(this.bpm * this.fator, this.compasso, this.batida < this.inicio ? this.tempoDe(this.inicio) : ctx.currentTime + 0.05);
+        if (estado.prefs.metronomo) Player.metronomoLivre(this.bpm * this.fator, this.compasso, ctx.currentTime + Math.max(0.05, this.batida < this.inicio ? this.tempoDe(this.inicio) - agoraS() : 0.05));
       }
       this.atualizarTransporte();
       requestAnimationFrame(this.loop);
     }
+    atualizarMaos(dedos, proxima) {
+      const ass = (proxima ? 'p' : '') + dedos.map(d => d.h + d.f + ':' + d.m).sort().join(',');
+      if (ass === this.assinaturaMaos) return;
+      this.assinaturaMaos = ass;
+      const painel = $('.maos', this.raiz); if (!painel) return;
+      const porDedo = new Map(dedos.map(d => [d.h + d.f, d]));
+      $$('.dedo', painel).forEach(g => {
+        const d = porDedo.get(g.dataset.dedo);
+        g.classList.toggle('ativo', !!d);
+        $('.nota', g).textContent = d ? (this.nomePorTecla.get(d.m) || NOMES[d.m % 12]) : '';
+      });
+      const ordenados = dedos.slice().sort((a, b) => (a.h === b.h ? a.f - b.f : a.h === 'E' ? -1 : 1));
+      const txt = ordenados.length > 5 ? 'Posição: cada dedo com a sua tecla'
+        : ordenados.map(d => `${d.h === 'D' ? 'Direita' : 'Esquerda'}, dedo ${d.f}: ${this.nomePorTecla.get(d.m) || NOMES[d.m % 12]}`).join(' · ');
+      $('.legenda-mao', painel).textContent = ordenados.length ? (proxima ? 'Primeira nota — ' : '') + txt : '';
+    }
+    mostrarTeclas(lista) {
+      this.destaque = lista && lista.length ? new Map(lista.map(([m, f, h]) => [m, { f, h }])) : null;
+      if (!this.tocando) this.desenhar();
+    }
+    tocarTrecho(t0, t1) {
+      return new Promise(res => {
+        this.parar();
+        if (this.modo !== 'ouvir') { this.modo = 'ouvir'; this.prepararNotas(); $$('[data-modo]', this.raiz).forEach(x => x.setAttribute('aria-pressed', String(x.dataset.modo === 'ouvir'))); }
+        this.limite = t1; this.semContagem = true; this.aoFimTrecho = res;
+        this.batida = t0 - 1; // um tempo de queda antes da primeira nota
+        this.tocar(); this.atualizarStatus();
+      });
+    }
+    interromperTrecho() { if (this.aoFimTrecho) this.parar(); }
+    fimTrecho() {
+      const r = this.aoFimTrecho; this.aoFimTrecho = null; this.limite = null; this.semContagem = false;
+      if (r) r();
+    }
     parar() {
+      if (this.aoFimTrecho) { this.tocando = false; this.atualizarTransporte(); this.fimTrecho(); return; }
       if (!this.tocando) return;
       this.tocando = false;
       Player.metro && Player.metro.parar();
@@ -621,22 +804,27 @@
     }
     batidaEm(t) { return this.ancora.b + (t - this.ancora.t) * this.bps; }
     tempoDe(b) { return this.ancora.t + (b - this.ancora.b) / this.bps; }
-    reancorar() { if (this.tocando && Som.ctx) { this.ancora = { b: this.batida, t: Som.ctx.currentTime }; this.agendadoAte = this.batida; } }
+    reancorar() { if (this.tocando) { this.ancora = { b: this.batida, t: agoraS() }; this.agendadoAte = this.batida; } }
+    paraAudio(t) { return Som.ctx.currentTime + Math.max(0, t - agoraS()); }
     loop(agora) {
       if (!this.tocando) return;
       const ctx = Som.ctx;
       if (this.modo === 'ouvir') {
-        this.batida = this.batidaEm(ctx.currentTime);
-        const horizonte = this.batidaEm(ctx.currentTime + 0.15);
+        const t0 = agoraS();
+        this.batida = this.batidaEm(t0);
+        const horizonte = this.batidaEm(t0 + 0.15);
         for (const n of this.aula.notas) {
           if (n.t >= this.agendadoAte && n.t < horizonte) {
             if (this.maos !== 'todas' && n.h !== this.maos) continue;
-            const ini = Math.max(this.tempoDe(n.t), ctx.currentTime);
-            Som.nota(n.m, ini, n.d / this.bps * (n.a === 'stac' ? 0.9 : 0.98), n.v);
+            if (this.limite != null && n.t >= this.limite - 1e-6) continue;
+            Som.nota(n.m, this.paraAudio(this.tempoDe(n.t)), n.d / this.bps * (n.a === 'stac' ? 0.9 : 0.98), n.v);
           }
         }
         this.cliques(horizonte, estado.prefs.metronomo);
         this.agendadoAte = horizonte;
+        if (this.limite != null && this.batida > this.limite + 0.4) {
+          this.tocando = false; this.atualizarTransporte(); this.desenhar(); this.fimTrecho(); return;
+        }
         if (this.batida > this.fim + 0.6) {
           if (estado.prefs.repetir) { this.tocando = false; this.batida = this.inicio; this.tocar(); return; }
           this.tocando = false; this.batida = this.fim; this.atualizarTransporte();
@@ -645,8 +833,9 @@
         const dt = Math.min(0.1, (agora - this.ultimoQuadro) / 1000);
         this.ultimoQuadro = agora;
         if (this.batida < this.inicio) {
-          this.batida = this.batidaEm(ctx.currentTime);
-          const horizonte = this.batidaEm(ctx.currentTime + 0.15);
+          const t0 = agoraS();
+          this.batida = this.batidaEm(t0);
+          const horizonte = this.batidaEm(t0 + 0.15);
           this.cliques(Math.min(horizonte, this.inicio - 0.001), false);
           this.agendadoAte = horizonte;
         } else {
@@ -665,13 +854,14 @@
       if (this.tocando) requestAnimationFrame(this.loop);
     }
     cliques(horizonte, sempre) {
+      if (this.semContagem) return;
       const ini = Math.ceil(this.agendadoAte - 1e-6);
       for (let k = ini; k < horizonte; k++) {
         const contagem = k < this.inicio;
         if (!sempre && !contagem) continue;
         if (k < this.inicio - this.compasso - 0.01) continue;
         const forte = (((k - this.inicio) % this.compasso) + this.compasso) % this.compasso === 0;
-        Som.clique(Math.max(this.tempoDe(k), Som.ctx.currentTime), forte);
+        Som.clique(this.paraAudio(this.tempoDe(k)), forte);
       }
     }
     static metronomoLivre(bpm, compasso, inicioCtx) {
@@ -685,6 +875,7 @@
     }
     // ---- entrada
     midi(tipo, m, v, ts) {
+      if (tipo === 'pedal') { if (this.modo === 'praticar' && this.tocando && !this.terminou) this.pedais.push({ ts, baixo: v >= 64 }); return; }
       if (tipo === 'on') this.flash.set(m, { ate: performance.now() + 350, cor: null });
       if (this.modo !== 'praticar' || !this.tocando || this.terminou) { if (!this.tocando) this.desenhar(); return; }
       if (tipo === 'on') {
@@ -742,7 +933,7 @@
       Player.metro && Player.metro.parar();
       const fimTs = performance.now();
       this.recs.forEach(r => { if (r.off == null) r.off = fimTs; });
-      const r = avaliar(this.aula, this.eventos, this.recs);
+      const r = avaliar(this.aula, this.eventos, this.recs, this.pedais);
       const minutos = Math.max(0.2, (Date.now() - this.sessaoInicio) / 60000);
       this.sessaoInicio = null;
       const sessao = { quando: new Date().toISOString(), dia: hojeStr(), aula: this.aula.id, minutos: +minutos.toFixed(1), maos: this.maos, tempo: Math.round(this.bpm * this.fator), completa: true, r };
@@ -765,13 +956,15 @@
     atualizarStatus(msg) {
       const st = $('.status', this.raiz); if (!st) return;
       if (msg) { st.textContent = msg; return; }
+      if (this.aoFimTrecho) { st.innerHTML = 'Demonstração: observe as teclas e os dedos.'; return; }
       if (this.modo === 'ouvir') { st.innerHTML = this.aula.notas.some(n => n.f) ? 'Modo <b>Ouvir</b>: o site toca o exercício. Observe os dedos e cante junto.' : 'Modo <b>Ouvir</b>: o site toca o trecho. Observe as teclas e cante a melodia junto.'; return; }
       if (this.terminou && this.resultado) { st.innerHTML = this.resultado.r.passou ? '<b>Passou.</b> Veja o relatório abaixo.' : 'Exercício terminado. Veja o relatório abaixo.'; return; }
       const ev = this.eventos[this.idx];
       if (!ev) { st.textContent = ''; return; }
-      const alvo = ev.notas.map(n => `<b>${esc(n.n)}</b> (${n.h === 'D' ? 'MD' : 'ME'}${n.f ? ' ' + n.f : ''})`).join(' + ');
+      const alvo = ev.notas.map(n => `<b>${esc(rotuloNota(n))}</b> (${n.h === 'D' ? 'MD' : 'ME'}${n.f ? ' ' + n.f : ''})`).join(' + ');
       const conectado = Midi.estado === 'conectado';
-      st.innerHTML = (this.tocando ? 'Esperando: ' : 'Primeira nota: ') + alvo + (conectado ? '' : ' · <span class="suave">sem piano conectado: toque nas teclas da tela</span>');
+      st.innerHTML = (this.tocando ? 'Esperando: ' : 'Primeira nota: ') + alvo + (conectado ? '' : ' · <span class="suave">sem piano conectado: toque nas teclas da tela</span>')
+        + '<br><span class="suave">No modo Praticar o site não toca as notas: o som vem do seu piano. Para ouvir a música, use Ouvir.</span>';
     }
     atualizarTransporte() {
       const b = $('[data-acao="tocar"]', this.raiz); if (!b) return;
@@ -831,17 +1024,25 @@
           ctx.fillStyle = '#10121a';
           ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
           if (n.f) { ctx.font = `700 ${clamp(ww * 0.55, 10, 16)}px ${css('--font-mono')}`; ctx.fillText(String(n.f), x + ww / 2, base - 10); }
-          else { ctx.font = `700 ${clamp(ww * 0.34, 8, 12)}px ${css('--font-body')}`; ctx.fillText(n.n, x + ww / 2, base - 10); }
+          else { ctx.font = `700 ${clamp(ww * 0.34, 8, 12)}px ${css('--font-body')}`; ctx.fillText(rotuloNota(n), x + ww / 2, base - 10); }
           if (n.f && estado.prefs.nomes && base - topo > 40) {
             ctx.font = `600 ${clamp(ww * 0.3, 9, 12)}px ${css('--font-body')}`;
-            ctx.fillText(n.n, x + ww / 2, base - 28);
+            ctx.fillText(rotuloNota(n), x + ww / 2, base - 28);
           }
         }
         ctx.globalAlpha = 1;
         // tecla acesa enquanto a nota soa (modo ouvir) ou nota esperada (praticar)
-        if (!fora && this.modo === 'ouvir' && this.batida >= n.t && this.batida < n.t + n.d) marcas.set(n.m, { cor, rotulo: n.f ? String(n.f) : n.n, textoCor: '#10121a' });
+        if (!fora && this.modo === 'ouvir' && this.batida >= n.t && this.batida < n.t + n.d) marcas.set(n.m, { cor, rotulo: n.f ? String(n.f) : rotuloNota(n), textoCor: '#10121a' });
       }
-      if (evAtual) for (const n of evAtual.notas) if (evAtual.pendentes.has(n.m)) marcas.set(n.m, { cor: (n.h === 'D' ? corD : corE), contorno: '#ffffff', rotulo: n.f ? String(n.f) : n.n, textoCor: '#10121a' });
+      if (evAtual) for (const n of evAtual.notas) if (evAtual.pendentes.has(n.m)) marcas.set(n.m, { cor: (n.h === 'D' ? corD : corE), contorno: '#ffffff', rotulo: n.f ? String(n.f) : rotuloNota(n), textoCor: '#10121a' });
+      if (this.destaque && !this.tocando) for (const [m, d] of this.destaque) marcas.set(m, { cor: d.h === 'D' ? corD : corE, contorno: '#ffffff', rotulo: String(d.f), textoCor: '#10121a' });
+      // mãos: quais dedos mostrar agora
+      const dedos = [];
+      if (this.destaque && !this.tocando) for (const [m, d] of this.destaque) dedos.push({ h: d.h, f: d.f, m });
+      else if (this.modo === 'praticar' && evAtual) evAtual.notas.forEach(n => { if (evAtual.pendentes.has(n.m) && n.f) dedos.push({ h: n.h, f: n.f, m: n.m }); });
+      else if (this.tocando) this.aula.notas.forEach(n => { if (n.f && (this.maos === 'todas' || n.h === this.maos) && this.batida >= n.t && this.batida < n.t + n.d) dedos.push({ h: n.h, f: n.f, m: n.m }); });
+      else { const prox = this.ativas.filter(n => n.f && n.t >= this.batida - 1e-6).sort((a, b) => a.t - b.t); const t0 = prox.length ? prox[0].t : null; prox.forEach(n => { if (n.t === t0) dedos.push({ h: n.h, f: n.f, m: n.m }); }); }
+      this.atualizarMaos(dedos, !this.tocando && !this.destaque && this.modo !== 'praticar');
       const agora = performance.now();
       for (const [m, v] of Midi.teclas) if (!marcas.has(m) || this.modo === 'ouvir') marcas.set(m, { cor: css('--press'), rotulo: estado.prefs.nomes ? NOMES[m % 12] : '', textoCor: '#10121a' });
       for (const [m, f] of this.flash) { if (f.ate < agora) { this.flash.delete(m); continue; } if (f.cor) marcas.set(m, { cor: f.cor, rotulo: NOMES[m % 12], textoCor: '#ffffff' }); }
@@ -880,9 +1081,10 @@
     if (h.startsWith('aula-')) { aulaId = h.slice(5); vista = AULAS.has(aulaId) ? 'aula' : 'curso'; }
     else if (h === 'progresso') vista = 'progresso';
     else if (h === 'musicas' || h.startsWith('musica-')) vista = 'musicas';
-    Narr.parar();
+    Narr.parar(); Guia.parar();
     if (playerAtual) { playerAtual.destruir(); playerAtual = null; }
-    $$('.vista').forEach(v => { v.hidden = v.id !== 'vista-' + vista; });
+    // limpa as vistas escondidas: assim nunca existem dois teclados (ou dois #player) na página
+    $$('.vista').forEach(v => { v.hidden = v.id !== 'vista-' + vista; if (v.hidden) v.innerHTML = ''; });
     $$('.nav a').forEach(a => { if (a.dataset.nav === vista) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); });
     $('#nav-aula').href = '#aula-' + (aulaId || proximaAula());
     if (vista === 'curso') renderCurso();
@@ -907,9 +1109,9 @@
     el.innerHTML = `
       <div class="abertura">
         <div class="intro">
-          <span class="rotulo">Piano em casa, pelo método de Chopin</span>
-          <h1>A mão e o som primeiro. A partitura vem depois.</h1>
-          <p class="texto">Um curso de 26 semanas para quem já toca algumas músicas e quer técnica de verdade. Cada aula tem explicação falada, um teclado animado com as notas e os dedos, e um modo de prática que escuta o seu piano pelo cabo e espera você acertar.</p>
+          <span class="rotulo">${esc((C.curso || {}).rotulo || 'Piano em casa, pelo método de Chopin')}</span>
+          <h1>${esc((C.curso || {}).titulo || 'A mão e o som primeiro. A partitura vem depois.')}</h1>
+          <p class="texto">${esc((C.curso || {}).resumo || 'Cada aula tem explicação falada, um teclado animado com as notas e os dedos, e um modo de prática que escuta o seu piano pelo cabo e espera você acertar.')}</p>
           ${blocoNarracao('intro', 'Apresentação do curso', C.intro)}
           <div class="acoes">
             <a class="btn primario" href="#aula-${prox}">${algumaFeita ? 'Continuar' : 'Começar'}: aula ${idTexto(prox)}</a>
@@ -939,28 +1141,21 @@
         </div>
       </div>
 
-      <div class="secao">
-        <h2>Os módulos</h2>
-        <div class="modulos">
-          ${C.modulos.map(m => {
-            const aulas = C.aulas.filter(a => a.modulo === m.n);
-            return `<article class="modulo" data-pronto="${m.pronto}">
-              <div class="num">${m.n}</div>
-              <div class="cab"><h3 style="font-size:1.15rem">${esc(m.titulo)}</h3><span class="rotulo">${esc(m.semanas)}</span>${m.pronto ? '' : '<span class="chip">em preparação</span>'}</div>
-              <div class="corpo">
-                <p class="ideia">${esc(m.ideia)}</p>
-                <p class="texto"><b>Objetivo:</b> ${esc(m.objetivo)}</p>
-                ${m.narracao ? blocoNarracao('modulo-' + m.n, 'Explicação do módulo ' + m.n, m.narracao) : ''}
-                <ul class="aulas">
-                  ${m.pronto ? aulas.map(a => `<li><a href="#aula-${a.id}"><span class="id">${idTexto(a.id)}</span><span class="t">${esc(a.titulo)}</span></a>${chipStatus(a.id)}</li>`).join('')
-                    : (m.aulas || []).map((t, i) => `<li><span class="plano"><span class="id">${m.n}.${i + 1}</span><span class="t">${esc(t)}</span></span></li>`).join('')}
-                </ul>
-                <a class="ouvir-link" href="${esc(m.ouvir.url)}" target="_blank" rel="noopener">Para ouvir: ${esc(m.ouvir.rotulo)}</a>
-              </div>
-            </article>`;
-          }).join('')}
-        </div>
-      </div>
+      ${(C.niveis && C.niveis.length ? C.niveis : [{ n: 0, titulo: 'Os módulos' }]).map(nv => {
+        const mods = C.modulos.filter(m => (m.nivel || 0) === nv.n);
+        if (!mods.length) return '';
+        const ids = C.aulas.filter(a => mods.some(m => m.n === a.modulo)).map(a => a.id);
+        const feitas = ids.filter(id => statusAula(id) === 'ok').length;
+        return `<div class="secao nivel" id="nivel-${nv.n}">
+          <div class="nivel-cab">
+            <span class="rotulo">${nv.n ? `Nível ${nv.n}` : ''}${nv.semanas ? ` · ${esc(nv.semanas)}` : ''}${ids.length ? ` · ${feitas} de ${ids.length} aulas` : ''}</span>
+            <h2>${esc(nv.titulo)}</h2>
+            ${nv.descricao ? `<p class="texto suave">${esc(nv.descricao)}</p>` : ''}
+            ${nv.meta ? `<p class="texto"><b>Ao terminar:</b> ${esc(nv.meta)}</p>` : ''}
+          </div>
+          <div class="modulos">${mods.map(moduloHTML).join('')}</div>
+        </div>`;
+      }).join('')}
 
       <div class="secao">
         <h2>Depois do curso</h2>
@@ -972,6 +1167,23 @@
         <ul class="fontes">${C.fontes.map(f => `<li>${f.url ? `<a href="${esc(f.url)}" target="_blank" rel="noopener">${esc(f.t)}</a>` : esc(f.t)}</li>`).join('')}</ul>
       </div>`;
     desenharPosicao();
+  }
+  function moduloHTML(m) {
+    const aulas = C.aulas.filter(a => a.modulo === m.n);
+    return `<article class="modulo" data-pronto="${m.pronto}">
+      <div class="num">${m.n}</div>
+      <div class="cab"><h3 style="font-size:1.15rem">${esc(m.titulo)}</h3><span class="rotulo">${esc(m.semanas || '')}</span>${m.pronto ? '' : '<span class="chip">em preparação</span>'}</div>
+      <div class="corpo">
+        <p class="ideia">${esc(m.ideia)}</p>
+        <p class="texto"><b>Objetivo:</b> ${esc(m.objetivo)}</p>
+        ${m.narracao ? blocoNarracao('modulo-' + m.n, 'Explicação do módulo ' + m.n, m.narracao) : ''}
+        <ul class="aulas">
+          ${m.pronto ? aulas.map(a => `<li><a href="#aula-${a.id}"><span class="id">${idTexto(a.id)}</span><span class="t">${esc(a.titulo)}</span></a>${a.tipo === 'repertorio' ? '<span class="chip">peça</span>' : ''}${chipStatus(a.id)}</li>`).join('')
+            : (m.aulas || []).map((t, i) => `<li><span class="plano"><span class="id">${m.n}.${i + 1}</span><span class="t">${esc(t)}</span></span></li>`).join('')}
+        </ul>
+        ${m.ouvir ? `<a class="ouvir-link" href="${esc(m.ouvir.url)}" target="_blank" rel="noopener">Para ouvir: ${esc(m.ouvir.rotulo)}</a>` : ''}
+      </div>
+    </article>`;
   }
   function desenharPosicao() {
     const cv = $('#cv-posicao'); if (!cv) return;
@@ -1048,8 +1260,39 @@
       return;
     }
 
+    if (a.tipo === 'repertorio') {
+      const peca = (C.biblioteca || []).find(p => p.id === a.peca);
+      const mus = peca ? musicaDaPeca(peca.id) : null;
+      const prog = mus ? progressoMusica(mus) : null;
+      el.innerHTML = `<div style="display:grid;gap:22px">${cab}
+        ${blocoNarracao('aula-' + id, 'Guia de estudo da peça', a.narracao)}
+        ${peca ? `<div class="peca-box">
+          <div class="peca-info">
+            <span class="rotulo">Peça · ${esc(peca.nivelTexto || '')}</span>
+            <h3 class="peca-titulo">${esc(peca.compositor)} · ${esc(peca.titulo)}</h3>
+            <p class="suave">${esc(peca.descricao || '')}</p>
+            ${prog ? `<div class="barra-prog" aria-hidden="true"><div style="width:${prog.total ? Math.round(100 * prog.feitas / prog.total) : 0}%"></div></div><p class="aviso">${prog.feitas} de ${prog.total} etapas do plano de estudo${prog.prox ? ` · próxima: ${esc(prog.prox.titulo)}` : ''}</p>` : '<p class="aviso">O plano de estudo divide a peça em partes: cada parte com uma mão de cada vez, depois juntas, depois ligada à anterior, até a peça inteira no tempo original.</p>'}
+            <p class="aviso">Partitura e MIDI: ${peca.fonteUrl ? `<a href="${esc(peca.fonteUrl)}" target="_blank" rel="noopener">${esc(peca.fonte || 'fonte')}</a>` : esc(peca.fonte || '')}${peca.licenca ? ` · ${esc(peca.licenca)}` : ''}</p>
+          </div>
+          <div class="linha-botoes">
+            <button class="btn primario" type="button" id="btn-peca">${mus ? 'Continuar o plano de estudo' : 'Criar o plano de estudo'}</button>
+            ${peca.ouvirUrl ? `<a class="btn" href="${esc(peca.ouvirUrl)}" target="_blank" rel="noopener">Ouvir uma gravação</a>` : ''}
+            <span class="aviso" id="peca-msg" aria-live="polite"></span>
+          </div>
+        </div>` : '<p class="aviso">Peça não encontrada na biblioteca.</p>'}
+        ${info}
+        ${navAulas}</div>`;
+      const b = $('#btn-peca');
+      if (b) b.addEventListener('click', async () => {
+        b.disabled = true; $('#peca-msg').textContent = mus ? '' : 'Carregando a peça…';
+        try { const m = await abrirPeca(peca); location.hash = 'musica-' + m.id; }
+        catch (e) { $('#peca-msg').textContent = 'Não consegui carregar a peça (' + e.message + '). Verifique a conexão e tente de novo.'; b.disabled = false; }
+      });
+      return;
+    }
+
     el.innerHTML = `<div style="display:grid;gap:22px">${cab}
-      ${blocoNarracao('aula-' + id, 'Explicação da aula', a.narracao)}
+      ${blocoNarracao('aula-' + id, a.guia ? 'Só a explicação, em áudio' : 'Explicação da aula', a.narracao)}
       ${htmlPlayer(a)}
       <div id="resultado"></div>
       ${info}
@@ -1062,10 +1305,12 @@
     const p = estado.prefs, chave = a.chaveTempo || 'tempo', tv = p[chave] ?? 1;
     const maosOp = a.maos === 'DE' || a.maos === 'D,E';
     return `<div class="player" id="player">
+        ${a.guia ? `<div class="guia-barra" id="guia-barra"><button class="btn primario" type="button" data-guia="iniciar">▶ Aula guiada</button>
+          <span class="aviso">A narração explica cada passo e o teclado mostra junto: teclas acesas com os dedos e trechos tocados.</span></div>` : ''}
         <div class="controles">
           <div class="seg" role="group" aria-label="Modo">
-            <button type="button" data-modo="ouvir" aria-pressed="true">Ouvir</button>
-            <button type="button" data-modo="praticar" aria-pressed="false">Praticar</button>
+            <button type="button" data-modo="ouvir" aria-pressed="true">▶ Ouvir</button>
+            <button type="button" data-modo="praticar" aria-pressed="false">▶ Praticar</button>
           </div>
           ${maosOp ? `<div class="seg" role="group" aria-label="Mãos">
             <button type="button" data-maos="todas" aria-pressed="true">Ambas</button>
@@ -1078,6 +1323,7 @@
           <label class="chk"><input type="checkbox" id="repetir" ${p.repetir ? 'checked' : ''}> Repetir</label>
         </div>
         <div class="palco"><canvas aria-label="Teclado animado: as notas descem até as teclas que você deve apertar"></canvas></div>
+        <div class="maos">${maoSVG('E')}<p class="legenda-mao" aria-live="polite"></p>${maoSVG('D')}</div>
         <div class="transporte">
           <button class="btn primario tocar" type="button" data-acao="tocar"></button>
           <button class="btn" type="button" data-acao="reiniciar">Do início</button>
@@ -1095,10 +1341,20 @@
     pl.atualizarTransporte();
     raiz.addEventListener('click', e => {
       const b = e.target.closest('button'); if (!b) return;
+      if (b.dataset.guia) {
+        if (b.dataset.guia === 'iniciar' && !Guia.ativo) { Som.iniciar(); rodarGuia(a, pl); }
+        if (b.dataset.guia === 'pular') Guia.pular();
+        if (b.dataset.guia === 'parar') Guia.parar();
+        return;
+      }
+      if (Guia.ativo) Guia.parar();
       if (b.dataset.modo) {
+        const mesmo = pl.modo === b.dataset.modo;
         $$('[data-modo]', raiz).forEach(x => x.setAttribute('aria-pressed', String(x === b)));
-        pl.definirModo(b.dataset.modo);
+        if (!mesmo) { pl.definirModo(b.dataset.modo); $('#resultado').innerHTML = ''; }
         if (b.dataset.modo === 'praticar' && Midi.estado === 'pedir') Midi.iniciar(true);
+        if (mesmo && pl.tocando) pl.parar(); else { Narr.parar(); pl.tocar(); }
+        pl.atualizarStatus();
       }
       if (b.dataset.maos) { $$('[data-maos]', raiz).forEach(x => x.setAttribute('aria-pressed', String(x === b))); pl.definirMaos(b.dataset.maos); }
       if (b.dataset.acao === 'tocar') { if (pl.tocando) pl.parar(); else { Narr.parar(); pl.tocar(); } pl.atualizarStatus(); }
@@ -1133,6 +1389,8 @@
     if (r.buracos != null) met.push(`<div class="metrica" data-nivel="${r.buracos <= (p.buracosMax ?? 1) ? 'ok' : r.buracos <= 3 ? 'warn' : 'bad'}"><span>Buracos no legato</span><b>${r.buracos}</b><span>${r.embolou ? r.embolou + ' notas emboladas' : 'silêncios entre notas ligadas'}</span></div>`);
     if (r.staccato != null) met.push(`<div class="metrica" data-nivel="${r.staccato >= 70 ? 'ok' : r.staccato >= 50 ? 'warn' : 'bad'}"><span>Staccato curto</span><b>${r.staccato}%</b><span>notas que soltaram cedo</span></div>`);
     if (r.dinamica != null) met.push(`<div class="metrica" data-nivel="${nivel(r.dinamica, p.dinamica)}"><span>Dinâmica</span><b>${r.dinamica}%</b><span>aderência ao desenho</span></div>`);
+    if (r.equilibrio != null) met.push(`<div class="metrica" data-nivel="${p.equilibrio != null ? (r.equilibrio >= p.equilibrio ? 'ok' : r.equilibrio >= 0 ? 'warn' : 'bad') : ''}"><span>Melodia × acompanhamento</span><b>${r.equilibrio > 0 ? '+' : ''}${r.equilibrio}%</b><span>direita em relação à esquerda</span></div>`);
+    if (r.pedal != null) met.push(`<div class="metrica" data-nivel="${nivel(r.pedal, p.pedal)}"><span>Pedal sincopado</span><b>${r.pedal}%</b><span>${r.pedalTrocas} troca${r.pedalTrocas === 1 ? '' : 's'} recebida${r.pedalTrocas === 1 ? '' : 's'}</span></div>`);
     const linhas = ['D', 'E'].filter(h => [1, 2, 3, 4, 5].some(k => r.forca[h + k] != null)).map(h => {
       const vs = [1, 2, 3, 4, 5].map(k => r.forca[h + k]);
       return `<div class="linha ${h}"><span>${h === 'D' ? 'Mão direita' : 'Mão esquerda'}</span>${vs.map((v, k) => `<div class="col"><i style="height:${v == null ? 0 : Math.round(8 + 52 * v / 127)}px"></i>${v == null ? '—' : v}<span>dedo ${k + 1}</span></div>`).join('')}</div>`;
@@ -1672,6 +1930,49 @@
     return `${m.titulo} · ${e ? e.titulo : 'etapa de uma divisão anterior'}`;
   };
 
+  const musicaDaPeca = pecaId => estado.musicas.find(m => m.biblioteca === pecaId && !m.removida);
+  async function abrirPeca(peca) {
+    let m = musicaDaPeca(peca.id); if (m) return m;
+    const idFixo = 'b' + peca.id.replace(/[^a-z0-9]/gi, '');
+    const antiga = estado.musicas.find(x => x.id === idFixo);
+    if (antiga) { antiga.removida = false; antiga.biblioteca = peca.id; salvarMusica(antiga); return antiga; }
+    const resp = await fetch('repertorio/' + peca.arquivo, { cache: 'force-cache' });
+    if (!resp.ok) throw new Error('arquivo ' + resp.status);
+    const midi = lerMidi(await resp.arrayBuffer(), peca.arquivo);
+    if (peca.bpm) midi.bpm = peca.bpm;
+    const config = Object.assign(configPadrao(midi), peca.config || {});
+    m = { id: idFixo, titulo: peca.titulo, criada: new Date().toISOString(), atualizado_em: '', removida: false, biblioteca: peca.id, midi, config };
+    salvarMusica(m);
+    return m;
+  }
+  function bibliotecaHTML() {
+    const lista = C.biblioteca || [];
+    if (!lista.length) return '';
+    const niveis = [...new Set(lista.map(p => p.nivel))].sort((a, b) => a - b);
+    return `<div style="display:grid;gap:14px">
+      <div class="aula-cab"><span class="rotulo">Biblioteca do curso</span><h2>Peças de domínio público, já prontas para estudar</h2>
+        <p class="texto suave">Cada peça vem com o MIDI e o plano de estudo. Elas aparecem também nos módulos, na ordem em que Chopin as dava aos alunos.</p></div>
+      ${niveis.map(n => `<div style="display:grid;gap:8px"><span class="rotulo">${esc((C.niveis || []).find(x => x.n === n)?.titulo ? `Nível ${n} · ${(C.niveis || []).find(x => x.n === n).titulo}` : `Nível ${n}`)}</span>
+        <div class="biblioteca">${lista.filter(p => p.nivel === n).map(p => {
+          const m = musicaDaPeca(p.id); const pr = m ? progressoMusica(m) : null;
+          return `<article class="peca-card">
+            <div><span class="rotulo">${esc(p.compositor)}</span><h3>${esc(p.titulo)}</h3><p class="aviso">${esc(p.descricao || '')}</p></div>
+            ${pr ? `<div class="barra-prog" aria-hidden="true"><div style="width:${pr.total ? Math.round(100 * pr.feitas / pr.total) : 0}%"></div></div><p class="aviso">${pr.feitas} de ${pr.total} etapas</p>` : ''}
+            <div class="linha-botoes"><button class="btn ${m ? '' : 'primario'}" type="button" data-peca="${esc(p.id)}">${m ? 'Continuar' : 'Estudar'}</button>${p.aula ? `<a class="btn" href="#aula-${esc(p.aula)}">Guia da aula ${idTexto(p.aula)}</a>` : ''}</div>
+          </article>`;
+        }).join('')}</div></div>`).join('')}
+    </div>`;
+  }
+  function ligarBiblioteca(el, msg) {
+    el.addEventListener('click', async e => {
+      const b = e.target.closest('[data-peca]'); if (!b) return;
+      const peca = (C.biblioteca || []).find(p => p.id === b.dataset.peca); if (!peca) return;
+      b.disabled = true; if (msg) msg.textContent = 'Carregando a peça…';
+      try { const m = await abrirPeca(peca); location.hash = 'musica-' + m.id; }
+      catch (err) { if (msg) msg.textContent = 'Não consegui carregar a peça (' + err.message + ').'; b.disabled = false; }
+    });
+  }
+
   function salvarMusica(m) {
     m.atualizado_em = new Date().toISOString(); m.sync = false;
     if (!estado.musicas.includes(m)) estado.musicas.push(m);
@@ -1732,8 +2033,8 @@
     const el = $('#vista-musicas');
     const lista = musicasVisiveis();
     el.innerHTML = `<div style="display:grid;gap:28px">
-      <div class="aula-cab"><span class="rotulo">Repertório</span><h1>Suas músicas</h1>
-        <p class="texto suave">Importe o arquivo MIDI de uma música. O site divide em partes e monta o caminho: cada parte com uma mão de cada vez, depois juntas, depois ligada à anterior, até a música inteira no tempo original.</p></div>
+      <div class="aula-cab"><span class="rotulo">Repertório</span><h1>Músicas</h1>
+        <p class="texto suave">Escolha uma peça da biblioteca ou importe o arquivo MIDI de uma música. O site divide em partes e monta o caminho: cada parte com uma mão de cada vez, depois juntas, depois ligada à anterior, até a música inteira no tempo original.</p></div>
       <div class="importar">
         <div class="linha-botoes">
           <label class="btn primario" for="arquivo-midi">Importar arquivo MIDI</label>
@@ -1743,7 +2044,8 @@
         <p class="aviso" id="import-msg" aria-live="polite"></p>
         <div id="config-musica"></div>
       </div>
-      ${lista.length ? `<div class="musicas">${lista.map(m => {
+      ${bibliotecaHTML()}
+      ${lista.length ? `<div class="aula-cab"><span class="rotulo">Em estudo</span><h2>Suas músicas</h2></div><div class="musicas">${lista.map(m => {
         const { feitas, total, prox, pl } = progressoMusica(m);
         const min = Math.round(estado.sessoes.filter(s => s.aula.startsWith('m:' + m.id + ':')).reduce((a, s) => a + (s.minutos || 0), 0));
         return `<article class="musica-card">
@@ -1759,6 +2061,7 @@
       }).join('')}</div>` : `<p class="suave">Nenhuma música ainda. Importe um arquivo .mid para começar.${Nuvem.logado ? '' : ' Se você já importou em outro aparelho, entre na sua conta na aba Progresso para trazer as músicas.'}</p>`}
     </div>`;
     const msg = $('#import-msg');
+    ligarBiblioteca(el, msg);
     $('#arquivo-midi').addEventListener('change', async ev => {
       const arq = ev.target.files && ev.target.files[0]; if (!arq) return;
       msg.textContent = 'Lendo o arquivo…';
@@ -1836,7 +2139,7 @@
   }
 
   /* ------------------------------------------------------------ início */
-  window.__curso = { avaliar, Midi, Nuvem, estado, lerMidi, planoMusica, get player() { return playerAtual; } };
+  window.__curso = { avaliar, Midi, Nuvem, estado, lerMidi, planoMusica, Guia, get player() { return playerAtual; } };
   if ('speechSynthesis' in window) { try { speechSynthesis.getVoices(); speechSynthesis.onvoiceschanged = () => {}; } catch (e) { /* nada */ } }
   Midi.iniciar(false);
   Nuvem.iniciar();

@@ -1,0 +1,92 @@
+LICENÇAS DAS PEÇAS DA BIBLIOTECA
+================================
+
+Todos os arquivos MIDI desta pasta vêm do Mutopia Project (https://www.mutopiaproject.org),
+que publica partituras e MIDI gerados em LilyPond sob domínio público ou licenças Creative Commons.
+Cada peça abaixo lista o arquivo, a página de origem e a licença. As peças CC BY e CC BY-SA exigem
+atribuição ao Mutopia Project e aos seus editores; as CC BY-SA exigem que derivados mantenham a mesma licença.
+
+- bach-minueto-anh114.mid: Petzold / Caderno de Anna Magdalena Bach · Minueto em Sol maior, BWV Anh. 114
+    origem: https://www.mutopiaproject.org/ftp/BachJS/BWVAnh114/anna-magdalena-04/
+    licença: Domínio público
+- chopin-preludio-28-7.mid: Chopin · Prelúdio em Lá maior, Op. 28 nº 7
+    origem: https://www.mutopiaproject.org/ftp/ChopinFF/O28/Chop-28-7/
+    licença: Domínio público
+- chopin-preludio-28-4.mid: Chopin · Prelúdio em Mi menor, Op. 28 nº 4
+    origem: https://www.mutopiaproject.org/ftp/ChopinFF/O28/Chop-28-4/
+    licença: Domínio público
+- chopin-preludio-28-20.mid: Chopin · Prelúdio em Dó menor, Op. 28 nº 20
+    origem: https://www.mutopiaproject.org/ftp/ChopinFF/O28/Chop-28-20/
+    licença: Domínio público
+- chopin-preludio-28-6.mid: Chopin · Prelúdio em Si menor, Op. 28 nº 6
+    origem: https://www.mutopiaproject.org/ftp/ChopinFF/O28/Chop-28-6/
+    licença: Domínio público
+- chopin-mazurca-6-1.mid: Chopin · Mazurca em Fá# menor, Op. 6 nº 1
+    origem: https://www.mutopiaproject.org/ftp/ChopinFF/O6/Mazurka-Op6-No1/
+    licença: CC BY 3.0 (Mutopia)
+- chopin-valsa-69-2.mid: Chopin · Valsa em Si menor, Op. 69 nº 2
+    origem: https://www.mutopiaproject.org/ftp/ChopinFF/O69/w10-h-moll-cfi/
+    licença: Domínio público
+- chopin-noturno-9-2.mid: Chopin · Noturno em Mi♭ maior, Op. 9 nº 2
+    origem: https://www.mutopiaproject.org/ftp/ChopinFF/O9/chopin_nocturne_op9_n2/
+    licença: CC BY-SA (Mutopia)
+- chopin-noturno-72-1.mid: Chopin · Noturno em Mi menor, Op. 72 nº 1
+    origem: https://www.mutopiaproject.org/ftp/ChopinFF/O72/nocturne_in_e_minor/
+    licença: CC BY-SA (Mutopia)
+- chopin-noturno-9-1.mid: Chopin · Noturno em Si♭ menor, Op. 9 nº 1
+    origem: https://www.mutopiaproject.org/ftp/ChopinFF/O9/nocturne_in_b-flat_minor/
+    licença: CC BY-SA (Mutopia)
+- chopin-preludio-28-15.mid: Chopin · Prelúdio em Ré♭ maior, Op. 28 nº 15 (Gota d'água)
+    origem: https://www.mutopiaproject.org/ftp/ChopinFF/O28/Chop-28-15/
+    licença: Domínio público
+- chopin-valsa-64-1.mid: Chopin · Valsa em Ré♭ maior, Op. 64 nº 1 (Minuto)
+    origem: https://www.mutopiaproject.org/ftp/ChopinFF/O64/chopin_valse_op64_no1/
+    licença: Domínio público
+- chopin-mazurca-33-1.mid: Chopin · Mazurca em Sol# menor, Op. 33 nº 1
+    origem: https://www.mutopiaproject.org/ftp/ChopinFF/O33/Mazurka-Op33-No1/
+    licença: CC BY 3.0 (Mutopia)
+- chopin-preludio-28-13.mid: Chopin · Prelúdio em Fá# maior, Op. 28 nº 13
+    origem: https://www.mutopiaproject.org/ftp/ChopinFF/O28/Chop-28-13/
+    licença: CC BY-SA (Mutopia)
+- chopin-nouvelle-etude-1.mid: Chopin · Nouvelle Étude nº 1 em Fá menor
+    origem: https://www.mutopiaproject.org/ftp/ChopinFF/B130/TroisNouvellesEtudes_Chopin_n1/
+    licença: Domínio público
+- chopin-estudo-10-9.mid: Chopin · Estudo em Fá menor, Op. 10 nº 9
+    origem: https://www.mutopiaproject.org/ftp/ChopinFF/O10/chopin-op-10-09-wfi/
+    licença: Domínio público
+- chopin-estudo-25-1.mid: Chopin · Estudo em Lá♭ maior, Op. 25 nº 1 (Harpa eólia)
+    origem: https://www.mutopiaproject.org/ftp/ChopinFF/O25/chopin-op-25-01/
+    licença: Domínio público
+- chopin-estudo-10-12.mid: Chopin · Estudo em Dó menor, Op. 10 nº 12 (Revolucionário)
+    origem: https://www.mutopiaproject.org/ftp/ChopinFF/O10/op-10-12-wfi/
+    licença: Domínio público
+- chopin-estudo-25-2.mid: Chopin · Estudo em Fá menor, Op. 25 nº 2
+    origem: https://www.mutopiaproject.org/ftp/ChopinFF/O25/PS-chopin-25-02/
+    licença: Domínio público
+- chopin-estudo-10-5.mid: Chopin · Estudo em Sol♭ maior, Op. 10 nº 5 (Teclas pretas)
+    origem: https://www.mutopiaproject.org/ftp/ChopinFF/O10/chp-10-05/
+    licença: Domínio público
+- chopin-estudo-10-2.mid: Chopin · Estudo em Lá menor, Op. 10 nº 2
+    origem: https://www.mutopiaproject.org/ftp/ChopinFF/O10/10-02-i/
+    licença: Domínio público
+- chopin-estudo-10-1.mid: Chopin · Estudo em Dó maior, Op. 10 nº 1
+    origem: https://www.mutopiaproject.org/ftp/ChopinFF/O10/chp-10-01/
+    licença: Domínio público
+- chopin-fantaisie-impromptu.mid: Chopin · Fantaisie-Impromptu em Dó# menor, Op. 66
+    origem: https://www.mutopiaproject.org/ftp/ChopinFF/O66/chopin_fantaisie-impromptu/
+    licença: Domínio público
+- chopin-noturno-27-2.mid: Chopin · Noturno em Ré♭ maior, Op. 27 nº 2
+    origem: https://www.mutopiaproject.org/ftp/ChopinFF/O27/chopin-nocturne-8/
+    licença: CC BY-SA (Mutopia)
+- chopin-preludio-45.mid: Chopin · Prelúdio em Dó# menor, Op. 45
+    origem: https://www.mutopiaproject.org/ftp/ChopinFF/O45/chopin_prelude_op45/
+    licença: Domínio público
+- chopin-preludio-28-24.mid: Chopin · Prelúdio em Ré menor, Op. 28 nº 24
+    origem: https://www.mutopiaproject.org/ftp/ChopinFF/O28/Chop-28-24/
+    licença: CC BY-SA (Mutopia)
+- chopin-balada-1.mid: Chopin · Balada nº 1 em Sol menor, Op. 23
+    origem: https://www.mutopiaproject.org/ftp/ChopinFF/O23/chopin-op23-ballade-1/
+    licença: CC BY-SA (Mutopia)
+- chopin-balada-4.mid: Chopin · Balada nº 4 em Fá menor, Op. 52
+    origem: https://www.mutopiaproject.org/ftp/ChopinFF/O52/ballade-4/
+    licença: Domínio público
