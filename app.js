@@ -27,9 +27,10 @@
     sessoes: store.get('sessoes', []),
     status: store.get('status', {}),
     prefs: Object.assign({ tempo: 1, tempoMusica: 0.6, metronomo: false, nomes: false, repetir: false }, store.get('prefs', {})),
-    musicas: store.get('musicas', [])
+    musicas: store.get('musicas', []),
+    jornada: store.get('jornada', null)
   };
-  const salvar = () => { store.set('sessoes', estado.sessoes); store.set('status', estado.status); store.set('prefs', estado.prefs); store.set('musicas', estado.musicas); };
+  const salvar = () => { store.set('sessoes', estado.sessoes); store.set('status', estado.status); store.set('prefs', estado.prefs); store.set('musicas', estado.musicas); store.set('jornada', estado.jornada); };
   const hojeStr = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
   function statusAula(id) {
@@ -49,6 +50,7 @@
     return ORDEM[ORDEM.length - 1];
   }
   function registrarSessao(s) {
+    if (Jornada.ativa) s.jornada = true;
     estado.sessoes.push(s);
     if (estado.sessoes.length > 5000) estado.sessoes.splice(0, estado.sessoes.length - 5000);
     salvar();
@@ -1111,17 +1113,21 @@
   /* ------------------------------------------------------------ vistas */
   let playerAtual = null;
   function rota() {
-    const h = (location.hash || '#curso').slice(1);
+    const h = (location.hash || '#hoje').slice(1);
     let vista = 'curso', aulaId = null;
-    if (h.startsWith('aula-')) { aulaId = h.slice(5); vista = AULAS.has(aulaId) ? 'aula' : 'curso'; }
+    if (h === 'hoje' || h === '') vista = 'hoje';
+    else if (h.startsWith('aula-')) { aulaId = h.slice(5); vista = AULAS.has(aulaId) ? 'aula' : 'curso'; }
     else if (h === 'progresso') vista = 'progresso';
     else if (h === 'musicas' || h.startsWith('musica-')) vista = 'musicas';
     Narr.parar(); Guia.parar();
+    Jornada.ativa = vista === 'hoje';
+    if (vista === 'aula' && Jornada.bloqueado()) { vista = 'hoje'; }
     if (playerAtual) { playerAtual.destruir(); playerAtual = null; }
     // limpa as vistas escondidas: assim nunca existem dois teclados (ou dois #player) na página
     $$('.vista').forEach(v => { v.hidden = v.id !== 'vista-' + vista; if (v.hidden) v.innerHTML = ''; });
     $$('.nav a').forEach(a => { if (a.dataset.nav === vista) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); });
     $('#nav-aula').href = '#aula-' + (aulaId || proximaAula());
+    if (vista === 'hoje') renderHoje();
     if (vista === 'curso') renderCurso();
     if (vista === 'aula') renderAula(aulaId);
     if (vista === 'progresso') renderProgresso();
@@ -1276,9 +1282,7 @@
       const diasFeitos = new Set(estado.sessoes.filter(s => s.aula === id).map(s => s.dia));
       el.innerHTML = `<div style="display:grid;gap:22px">${cab}
         ${blocoNarracao('aula-' + id, 'Explicação da aula', a.narracao)}
-        <div class="figuras" id="figuras">
-          ${['postura', 'braco-peso', 'mao-concha'].map(f => `<img src="img/${f}.png" alt="" data-fig="${f}" loading="lazy">`).join('')}
-        </div>
+        ${figurasHTML(a)}
         <div class="guia"><ol>${a.passos.map(p => `<li><span>${esc(p)}</span></li>`).join('')}</ol></div>
         <div class="linha-botoes">
           <button class="btn primario" type="button" id="fiz-hoje" ${diasFeitos.has(hojeStr()) ? 'disabled' : ''}>${diasFeitos.has(hojeStr()) ? 'Feito hoje' : 'Fiz a rotina hoje'}</button>
@@ -1286,7 +1290,6 @@
         </div>
         <div class="criterio"><span class="rotulo">Para passar</span><p>${esc(a.criterio)}</p></div>
         ${navAulas}</div>`;
-      $$('#figuras img').forEach(img => img.addEventListener('error', () => img.remove()));
       $('#fiz-hoje').addEventListener('click', () => {
         registrarSessao({ quando: new Date().toISOString(), dia: hojeStr(), aula: id, minutos: a.minutos, completa: true });
         const dias = new Set(estado.sessoes.filter(s => s.aula === id).map(s => s.dia));
@@ -1329,6 +1332,7 @@
 
     el.innerHTML = `<div style="display:grid;gap:22px">${cab}
       ${blocoNarracao('aula-' + id, a.guia ? 'Só a explicação, em áudio' : 'Explicação da aula', a.narracao)}
+      ${figurasHTML(a)}
       ${htmlPlayer(a)}
       <div id="resultado"></div>
       ${info}
@@ -1337,6 +1341,13 @@
     montarPlayer(a);
   }
 
+  function figurasHTML(a) {
+    if (!a.figuras || !a.figuras.length) return '';
+    return `<div class="figuras">${a.figuras.map(f => `<figure class="figura">
+        <img src="img/${esc(f.arq)}" alt="${esc(f.titulo)}" loading="lazy">
+        <figcaption><b>${esc(f.titulo)}</b><span>${esc(f.legenda)}</span></figcaption>
+      </figure>`).join('')}</div>`;
+  }
   function htmlPlayer(a) {
     const p = estado.prefs, chave = a.chaveTempo || 'tempo', tv = p[chave] ?? 1;
     const maosOp = a.maos === 'DE' || a.maos === 'D,E';
@@ -1958,6 +1969,7 @@
     return { pl, feitas, total: pl.etapas.length, prox };
   }
   rotuloAula = id => {
+    if (id === 'ouvir') return 'Ouvir e cantar';
     if (!id.startsWith('m:')) return 'aula ' + idTexto(id);
     const [, mid] = id.split(':');
     const m = estado.musicas.find(x => x.id === mid);
@@ -2174,8 +2186,167 @@
     });
   }
 
+
+  /* ------------------------------------------------------------ jornada do dia (Hoje) */
+  const LIMITE_MIN = 45;
+  const Jornada = {
+    ativa: false,
+    get hoje() { const j = estado.jornada; return j && j.dia === hojeStr() ? j : null; },
+    garantir() { if (!this.hoje) { estado.jornada = { dia: hojeStr(), passo: 0, feitos: {} }; salvar(); } return estado.jornada; },
+    minutosHoje() { return estado.sessoes.filter(s => s.dia === hojeStr() && (!s.aula.startsWith('m:') || s.jornada)).reduce((a, s) => a + (s.minutos || 0), 0); },
+    bloqueado() { return this.minutosHoje() >= LIMITE_MIN; },
+    ehTecnica(a) { return a.tipo === 'pratica' && [1, 2, 7, 8, 11].includes(a.modulo) && a.id !== '1-1'; },
+    ultimaSessao(id) { let t = ''; estado.sessoes.forEach(s => { if (s.aula === id && s.quando > t) t = s.quando; }); return t; },
+    plano() {
+      const feita = id => statusAula(id) === 'ok';
+      const ordem = ORDEM.filter(id => id !== '1-1');
+      // 3) exercício ou peça: a próxima aula do curso ainda não concluída
+      let exercicio = ordem.find(id => !feita(id)) || ordem[ordem.length - 1];
+      // 2) técnica: enquanto o nível 1 não acabou, a próxima aula dele; depois, rodízio das escalas já liberadas
+      const nivel1 = ordem.filter(id => AULAS.get(id).modulo <= 2);
+      let tecnica = nivel1.find(id => !feita(id));
+      if (tecnica && tecnica === exercicio) {
+        exercicio = ordem.find(id => !feita(id) && id !== tecnica) || exercicio;
+      }
+      if (!tecnica) {
+        const modAtual = AULAS.get(exercicio).modulo;
+        const pool = ORDEM.filter(id => this.ehTecnica(AULAS.get(id)) && AULAS.get(id).modulo <= Math.max(2, modAtual) && id !== exercicio);
+        pool.sort((x, y) => this.ultimaSessao(x).localeCompare(this.ultimaSessao(y)) || ORDEM.indexOf(x) - ORDEM.indexOf(y));
+        tecnica = pool[0] || '2-1';
+      }
+      const modEx = C.modulos.find(m => m.n === AULAS.get(exercicio).modulo);
+      const passos = [
+        { tipo: 'corpo', aula: '1-1', min: 5, titulo: 'Corpo', sub: 'Soltar ombros, braço e pulso' },
+        { tipo: 'aula', aula: tecnica, min: 10, titulo: 'Técnica', sub: AULAS.get(tecnica).titulo },
+        { tipo: 'aula', aula: exercicio, min: 15, titulo: 'Exercício ou peça', sub: AULAS.get(exercicio).titulo },
+        { tipo: 'ouvir', modulo: modEx, min: 5, titulo: 'Ouvir e cantar', sub: modEx && modEx.ouvir ? modEx.ouvir.rotulo : 'A gravação do módulo' },
+      ];
+      // 5) revisão: a aula em andamento mais recente que ainda não passou (se houver)
+      const emAndamento = ORDEM.filter(id => statusAula(id) === 'andamento' && ![tecnica, exercicio, '1-1'].includes(id));
+      emAndamento.sort((x, y) => this.ultimaSessao(y).localeCompare(this.ultimaSessao(x)));
+      if (emAndamento[0]) passos.push({ tipo: 'aula', aula: emAndamento[0], min: 10, titulo: 'Revisão', sub: AULAS.get(emAndamento[0]).titulo });
+      return passos;
+    },
+    marcar(passo) { const j = this.garantir(); j.feitos[passo] = true; salvar(); },
+    feito(passo) { const j = this.hoje; return !!(j && j.feitos[passo]); }
+  };
+
+  function renderHoje() {
+    const el = $('#vista-hoje');
+    Jornada.ativa = true;
+    if (playerAtual) { playerAtual.destruir(); playerAtual = null; }
+    const j = Jornada.garantir();
+    const plano = Jornada.plano();
+    const min = Jornada.minutosHoje();
+    const d = new Date();
+    const dataTxt = d.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' });
+    const barra = `<div class="hoje-cab">
+        <span class="rotulo">Hoje · ${esc(dataTxt)}</span>
+        <div class="hoje-tempo"><div class="barra-prog" aria-hidden="true"><div style="width:${Math.min(100, Math.round(100 * min / LIMITE_MIN))}%"></div></div><span class="mono">${Math.round(min)} de ${LIMITE_MIN} min</span></div>
+        <ol class="passos-dia">${plano.map((p, i) => `<li class="${i === j.passo ? 'atual' : ''} ${Jornada.feito(i) ? 'feito' : ''}"><span class="n">${i + 1}</span><span><b>${esc(p.titulo)}</b><small>${p.min} min</small></span></li>`).join('')}</ol>
+      </div>`;
+    if (Jornada.bloqueado()) {
+      el.innerHTML = `<div style="display:grid;gap:22px">${barra}
+        <div class="hoje-fim">
+          <h1>Treino de hoje completo.</h1>
+          <p class="texto">Você fez ${Math.round(min)} minutos. Chopin não deixava os alunos passarem do ponto: o curso fecha até amanhã. Se quiser continuar ao piano, toque as músicas da sua lista, como treino à parte.</p>
+          <div class="linha-botoes"><a class="btn primario" href="#musicas">Tocar músicas</a><a class="btn" href="#progresso">Ver progresso</a></div>
+        </div></div>`;
+      return;
+    }
+    if (j.passo >= plano.length) {
+      el.innerHTML = `<div style="display:grid;gap:22px">${barra}
+        <div class="hoje-fim">
+          <h1>Jornada de hoje concluída.</h1>
+          <p class="texto">${Math.round(min)} minutos feitos. Ainda cabem ${Math.max(0, Math.round(LIMITE_MIN - min))} minutos no limite de hoje: repita uma etapa, ou pare por aqui e toque músicas.</p>
+          <div class="linha-botoes">${plano.map((p, i) => `<button class="btn" type="button" data-repetir="${i}">Repetir ${esc(p.titulo.toLowerCase())}</button>`).join('')}<a class="btn primario" href="#musicas">Tocar músicas</a></div>
+        </div></div>`;
+      el.querySelectorAll('[data-repetir]').forEach(b => b.addEventListener('click', () => { j.passo = +b.dataset.repetir; j.feitos[j.passo] = false; salvar(); renderHoje(); }));
+      return;
+    }
+    const p = plano[j.passo];
+    const rodape = (podeContinuar, textoRepetir) => `<div class="hoje-rodape">
+        <span class="aviso" id="hoje-aviso">${podeContinuar ? 'Etapa feita. Pode seguir.' : 'Faça a etapa; o botão Continuar libera quando ela terminar.'}</span>
+        <div class="linha-botoes">${textoRepetir ? `<button class="btn" type="button" id="hoje-repetir">${esc(textoRepetir)}</button>` : ''}
+          <button class="btn primario" type="button" id="hoje-continuar" ${podeContinuar ? '' : 'disabled'}>${j.passo + 1 < plano.length ? 'Continuar →' : 'Concluir o dia'}</button></div>
+      </div>`;
+    const cabPasso = `<div class="aula-cab"><span class="rotulo">Etapa ${j.passo + 1} de ${plano.length} · ${esc(p.titulo)} · ${p.min} min</span><h1>${esc(p.sub)}</h1></div>`;
+    const liberar = () => { Jornada.marcar(j.passo); const b = $('#hoje-continuar'); if (b) b.disabled = false; const av = $('#hoje-aviso'); if (av) av.textContent = 'Etapa feita. Pode seguir.'; };
+    const ligarRodape = () => {
+      $('#hoje-continuar').addEventListener('click', () => { if (playerAtual) { playerAtual.destruir(); playerAtual = null; } j.passo++; salvar(); renderHoje(); window.scrollTo(0, 0); });
+    };
+
+    if (p.tipo === 'corpo' || (p.tipo === 'aula' && AULAS.get(p.aula).tipo === 'guia')) {
+      const a = AULAS.get(p.aula);
+      const feito = Jornada.feito(j.passo);
+      el.innerHTML = `<div style="display:grid;gap:22px">${barra}${cabPasso}
+        ${blocoNarracao('aula-' + a.id, 'Explicação', a.narracao)}
+        ${figurasHTML(a)}
+        <div class="guia"><ol>${a.passos.map(x => `<li><span>${esc(x)}</span></li>`).join('')}</ol></div>
+        <div class="linha-botoes"><button class="btn primario" type="button" id="hoje-fiz" ${feito ? 'disabled' : ''}>${feito ? 'Feito' : (p.tipo === 'corpo' ? 'Fiz a rotina de corpo' : 'Fiz esta etapa')}</button></div>
+        ${rodape(feito, null)}</div>`;
+      $('#hoje-fiz').addEventListener('click', () => {
+        registrarSessao({ quando: new Date().toISOString(), dia: hojeStr(), aula: a.id, minutos: p.min, completa: true });
+        if (a.tipo === 'guia') { const dias = new Set(estado.sessoes.filter(s => s.aula === a.id).map(s => s.dia)); if (dias.size >= 3) { estado.status[a.id] = { concluida: hojeStr() }; salvar(); } }
+        $('#hoje-fiz').disabled = true; $('#hoje-fiz').textContent = 'Feito'; liberar(); renderHoje();
+      });
+      ligarRodape();
+      return;
+    }
+    if (p.tipo === 'ouvir') {
+      const feito = Jornada.feito(j.passo);
+      const o = p.modulo && p.modulo.ouvir;
+      el.innerHTML = `<div style="display:grid;gap:22px">${barra}${cabPasso}
+        <div class="peca-box"><div class="peca-info"><span class="rotulo">Para ouvir e cantar junto</span><h3 class="peca-titulo">${esc(o ? o.rotulo : 'A gravação do módulo')}</h3>
+          <p class="suave">Chopin mandava os alunos ouvirem cantores. Ouça cinco minutos e cante a melodia junto, mesmo baixinho: é a sua frase que vai nascer disso.</p></div>
+          <div class="linha-botoes">${o ? `<a class="btn primario" href="${esc(o.url)}" target="_blank" rel="noopener">Abrir a gravação</a>` : ''}<button class="btn" type="button" id="hoje-fiz" ${feito ? 'disabled' : ''}>${feito ? 'Feito' : 'Ouvi e cantei'}</button></div></div>
+        ${rodape(feito, null)}</div>`;
+      $('#hoje-fiz').addEventListener('click', () => {
+        registrarSessao({ quando: new Date().toISOString(), dia: hojeStr(), aula: 'ouvir', minutos: p.min, completa: true });
+        $('#hoje-fiz').disabled = true; $('#hoje-fiz').textContent = 'Feito'; liberar(); renderHoje();
+      });
+      ligarRodape();
+      return;
+    }
+    // aula prática ou peça
+    const a0 = AULAS.get(p.aula);
+    if (a0.tipo === 'repertorio') {
+      const peca = (C.biblioteca || []).find(x => x.id === a0.peca);
+      el.innerHTML = `<div style="display:grid;gap:22px">${barra}${cabPasso}<p class="aviso">Carregando a peça…</p></div>`;
+      abrirPeca(peca).then(m => {
+        if ($('#vista-hoje').hidden) return;
+        const { pl, prox, feitas, total } = progressoMusica(m);
+        const e = prox;
+        const a = aulaDaEtapa(m, pl, e);
+        const feito = Jornada.feito(j.passo);
+        el.innerHTML = `<div style="display:grid;gap:22px">${barra}${cabPasso}
+          <div class="aula-cab"><span class="rotulo">${esc(peca.compositor)} · ${esc(peca.titulo)} · etapa ${e.n} de ${total}</span><h2>${esc(e.titulo)}</h2><p class="texto suave">${esc(dicaEtapa(e, a.bpm))}</p></div>
+          ${blocoNarracao('aula-' + a0.id, 'Guia de estudo da peça', a0.narracao)}
+          ${htmlPlayer(a)}<div id="resultado"></div>
+          <div class="criterio"><span class="rotulo">Para passar</span><p>${esc(a.criterio)}</p></div>
+          ${rodape(feito, 'Repetir a etapa')}</div>`;
+        montarPlayer(a, { aoResultado: () => liberar() });
+        $('#hoje-repetir').addEventListener('click', () => { if (playerAtual) { playerAtual.reiniciar(); $('#resultado').innerHTML = ''; } });
+        ligarRodape();
+      }).catch(err => { el.innerHTML = `<div style="display:grid;gap:22px">${barra}${cabPasso}<p class="aviso">Não consegui carregar a peça (${esc(err.message)}).</p>${rodape(true, null)}</div>`; ligarRodape(); });
+      return;
+    }
+    const a = a0;
+    const feito = Jornada.feito(j.passo) || statusAula(a.id) === 'ok';
+    el.innerHTML = `<div style="display:grid;gap:22px">${barra}${cabPasso}
+      ${blocoNarracao('aula-' + a.id, a.guia ? 'Só a explicação, em áudio' : 'Explicação da aula', a.narracao)}
+      ${figurasHTML(a)}
+      ${htmlPlayer(a)}<div id="resultado"></div>
+      <div class="aula-info"><div><h3>Passo a passo</h3><ol>${a.passos.map(x => `<li>${esc(x)}</li>`).join('')}</ol></div>
+        <div><h3>O que observar</h3><ul>${a.foco.map(x => `<li>${esc(x)}</li>`).join('')}</ul><div class="criterio"><span class="rotulo">Para passar</span><p>${esc(a.criterio)}</p></div></div></div>
+      ${rodape(feito, 'Repetir o exercício')}</div>`;
+    montarPlayer(a, { aoResultado: () => liberar() });
+    $('#hoje-repetir').addEventListener('click', () => { if (playerAtual) { playerAtual.reiniciar(); $('#resultado').innerHTML = ''; } });
+    ligarRodape();
+  }
+
   /* ------------------------------------------------------------ início */
-  window.__curso = { avaliar, Midi, Nuvem, estado, lerMidi, planoMusica, Guia, get player() { return playerAtual; } };
+  window.__curso = { avaliar, Midi, Nuvem, estado, lerMidi, planoMusica, Guia, Jornada, get player() { return playerAtual; } };
   if ('speechSynthesis' in window) { try { speechSynthesis.getVoices(); speechSynthesis.onvoiceschanged = () => {}; } catch (e) { /* nada */ } }
   Midi.iniciar(false);
   Nuvem.iniciar();

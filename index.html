@@ -287,7 +287,11 @@ p { margin: 0; }
   content: counter(p); font-family: var(--font-display); font-size: 1.5rem; line-height: 1; color: var(--accent);
 }
 .guia img { max-width: 100%; border-radius: var(--radius); border: 1px solid var(--line); }
-.figuras { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+.figuras { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }
+.figura { margin: 0; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; display: grid; }
+.figura img { width: 100%; height: auto; display: block; border: 0; border-radius: 0; background: #12141B; }
+.figura figcaption { padding: 10px 14px 12px; display: grid; gap: 3px; font-size: 0.9rem; color: var(--muted); }
+.figura figcaption b { color: var(--ink); }
 
 /* ---------- progresso ---------- */
 .resumo { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
@@ -402,6 +406,26 @@ h2 { text-wrap: balance; }
 .peca-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; display: grid; gap: 10px; align-content: start; min-width: 0; }
 .peca-card h3 { font-family: var(--font-display); font-size: 1.25rem; font-weight: 500; font-variation-settings: "opsz" 48; margin-top: 2px; }
 
+/* ---------- jornada do dia ---------- */
+.hoje-cab { display: grid; gap: 12px; }
+.hoje-tempo { display: flex; align-items: center; gap: 12px; }
+.hoje-tempo .barra-prog { flex: 1 1 200px; height: 8px; }
+.hoje-tempo .mono { color: var(--muted); font-size: 0.9rem; white-space: nowrap; }
+.passos-dia { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; }
+.passos-dia li { display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; background: var(--surface); min-width: 0; }
+.passos-dia li .n { font-family: var(--font-display); font-size: 1.3rem; color: var(--muted); flex: none; width: 1.2em; text-align: center; }
+.passos-dia li span:last-child { display: grid; min-width: 0; }
+.passos-dia li b { font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.passos-dia li small { color: var(--muted); font-family: var(--font-mono); font-size: 0.72rem; }
+.passos-dia li.atual { border-color: var(--accent); background: var(--accent-soft); }
+.passos-dia li.atual .n { color: var(--accent); }
+.passos-dia li.feito .n { color: var(--ok); }
+.passos-dia li.feito .n::before { content: "✓"; font-family: var(--font-body); font-size: 1rem; }
+.passos-dia li.feito .n { font-size: 0; }
+.hoje-rodape { position: sticky; bottom: 0; z-index: 5; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px 16px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 16px; margin-bottom: env(safe-area-inset-bottom, 0px); box-shadow: 0 -8px 24px rgba(0,0,0,0.12); }
+.hoje-rodape .aviso { flex: 1 1 240px; }
+.hoje-fim { background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--ok); border-radius: var(--radius); padding: 24px; display: grid; gap: 14px; }
+
 /* ---------- ligar o som (iPad/iPhone) ---------- */
 .ativar-som {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; display: grid; justify-items: center;
@@ -444,6 +468,7 @@ h2 { text-wrap: balance; }
   <div class="wrap">
     <a class="marca" href="#curso">Curso Chopin</a>
     <nav class="nav" aria-label="Seções">
+      <a href="#hoje" data-nav="hoje">Hoje</a>
       <a href="#curso" data-nav="curso">Curso</a>
       <a href="#aula-1-1" data-nav="aula" id="nav-aula">Aula</a>
       <a href="#musicas" data-nav="musicas">Músicas</a>
@@ -457,6 +482,7 @@ h2 { text-wrap: balance; }
 
 <main class="gutter">
   <div class="wrap">
+    <section class="vista" id="vista-hoje" aria-label="Jornada de hoje" hidden></section>
     <section class="vista" id="vista-curso" aria-label="O curso"></section>
     <section class="vista" id="vista-aula" aria-label="Aula" hidden></section>
     <section class="vista" id="vista-musicas" aria-label="Músicas" hidden></section>

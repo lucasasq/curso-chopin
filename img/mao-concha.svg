@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 400" width="640" height="400" role="img" aria-label="Animação: a mão passa de espalmada para a forma de concha, com os dedos curvos apoiados na ponta, vista de lado sobre as teclas">
+  <defs>
+    <style>
+      .fundo{fill:#12141B}
+      .tecla{fill:#F7F5EF;stroke:#A9ADB8;stroke-width:1}
+      .preta{fill:#1A1A1F}
+      .mao{fill:none;stroke:#E2B24C;stroke-width:10;stroke-linecap:round;stroke-linejoin:round}
+      .dedo{fill:none;stroke:#E2B24C;stroke-width:8;stroke-linecap:round;stroke-linejoin:round}
+      .rot{fill:#9BA1B2;font:500 13px ui-monospace,Menlo,monospace;letter-spacing:.06em}
+      .ok{fill:#5DC28A;font:600 15px system-ui,-apple-system,sans-serif}
+      .mau{fill:#E46B6B;font:600 15px system-ui,-apple-system,sans-serif}
+      .guia{fill:none;stroke:#8C9BFF;stroke-width:2;stroke-dasharray:6 6}
+    </style>
+  </defs>
+  <rect class="fundo" width="640" height="400" rx="10"/>
+  <text class="rot" x="24" y="34">MÃO EM CONCHA · DEDOS CURVOS, APOIADOS NA PONTA</text>
+
+  <!-- teclado visto de lado -->
+  <g>
+    <rect class="tecla" x="60" y="300" width="520" height="22" rx="3"/>
+    <rect class="preta" x="60" y="288" width="300" height="14" rx="2"/>
+  </g>
+
+  <!-- mão de perfil: pulso à esquerda, dedos à direita. Dois estados: espalmada (ruim) e em concha (boa) -->
+  <g>
+    <!-- antebraço + pulso -->
+    <path class="mao" d="M80 262 L250 262">
+      <animate attributeName="d" values="M80 262 L250 262;M80 262 L250 262;M80 256 L250 250;M80 256 L250 250;M80 262 L250 262" keyTimes="0;.25;.5;.85;1" dur="6s" repeatCount="indefinite" calcMode="spline" keySplines=".4 0 .2 1;.4 0 .2 1;.4 0 .2 1;.4 0 .2 1"/>
+    </path>
+    <!-- dorso da mão (metacarpos) -->
+    <path class="mao" d="M250 262 L330 264">
+      <animate attributeName="d" values="M250 262 L330 264;M250 262 L330 264;M250 250 Q300 226 335 236;M250 250 Q300 226 335 236;M250 262 L330 264" keyTimes="0;.25;.5;.85;1" dur="6s" repeatCount="indefinite" calcMode="spline" keySplines=".4 0 .2 1;.4 0 .2 1;.4 0 .2 1;.4 0 .2 1"/>
+    </path>
+    <!-- dedo longo: espalmado toca com a polpa deitada; em concha, dobra e apoia na ponta -->
+    <path class="dedo" d="M330 264 L400 272 L440 296">
+      <animate attributeName="d" values="M330 264 L400 272 L440 296;M330 264 L400 272 L440 296;M335 236 Q380 232 392 262 Q396 285 390 298;M335 236 Q380 232 392 262 Q396 285 390 298;M330 264 L400 272 L440 296" keyTimes="0;.25;.5;.85;1" dur="6s" repeatCount="indefinite" calcMode="spline" keySplines=".4 0 .2 1;.4 0 .2 1;.4 0 .2 1;.4 0 .2 1"/>
+    </path>
+    <!-- polegar -->
+    <path class="dedo" d="M262 270 L300 290 L330 298">
+      <animate attributeName="d" values="M262 270 L300 290 L330 298;M262 270 L300 290 L330 298;M262 262 Q290 286 318 298;M262 262 Q290 286 318 298;M262 270 L300 290 L330 298" keyTimes="0;.25;.5;.85;1" dur="6s" repeatCount="indefinite" calcMode="spline" keySplines=".4 0 .2 1;.4 0 .2 1;.4 0 .2 1;.4 0 .2 1"/>
+    </path>
+    <!-- arco-guia da concha -->
+    <path class="guia" d="M250 250 Q320 200 392 262" opacity="0">
+      <animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;.25;.5;.85;1" dur="6s" repeatCount="indefinite"/>
+    </path>
+  </g>
+
+  <text class="mau" x="24" y="372">
+    <animate attributeName="opacity" values="1;1;0;0;1" keyTimes="0;.25;.45;.9;1" dur="6s" repeatCount="indefinite"/>
+    mão espalmada: os dedos tocam deitados e o pulso trava
+  </text>
+  <text class="ok" x="24" y="372">
+    <animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;.25;.5;.85;1" dur="6s" repeatCount="indefinite"/>
+    ✓ concha: como segurar uma bola, a ponta do dedo apoia na tecla
+  </text>
+</svg>

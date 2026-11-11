@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 400" width="640" height="400" role="img" aria-label="Animação: o braço levanta e cai pesado no colo, três vezes, para sentir o peso que vai tocar">
+  <defs>
+    <style>
+      .fundo{fill:#12141B}
+      .corpo{fill:none;stroke:#C7CBD6;stroke-width:9;stroke-linecap:round;stroke-linejoin:round}
+      .cabeca{fill:#C7CBD6}
+      .banco{fill:#2B3042;stroke:#3A4055;stroke-width:2}
+      .chao{stroke:#262A36;stroke-width:2}
+      .peso{fill:#E2B24C;font:600 15px system-ui,-apple-system,sans-serif}
+      .rot{fill:#9BA1B2;font:500 13px ui-monospace,Menlo,monospace;letter-spacing:.06em}
+      .seta{fill:none;stroke:#E2B24C;stroke-width:3;stroke-linecap:round}
+      .onda{fill:none;stroke:#E2B24C;stroke-width:2;opacity:0}
+    </style>
+  </defs>
+  <rect class="fundo" width="640" height="400" rx="10"/>
+  <text class="rot" x="24" y="34">PESO DO BRAÇO · DEIXE O BRAÇO CAIR NO COLO, TRÊS VEZES</text>
+  <line class="chao" x1="20" y1="360" x2="620" y2="360"/>
+  <!-- banco -->
+  <rect class="banco" x="250" y="282" width="140" height="16" rx="4"/>
+  <rect class="banco" x="262" y="298" width="10" height="62"/>
+  <rect class="banco" x="368" y="298" width="10" height="62"/>
+  <!-- pessoa de frente -->
+  <g>
+    <circle class="cabeca" cx="320" cy="120" r="24"/>
+    <path class="corpo" d="M320 150 L320 285"/>
+    <!-- ombros -->
+    <path class="corpo" d="M268 165 L372 165"/>
+    <!-- pernas -->
+    <path class="corpo" d="M300 285 L290 360"/>
+    <path class="corpo" d="M340 285 L350 360"/>
+    <!-- colo -->
+    <path class="corpo" d="M286 290 L354 290"/>
+    <!-- braço direito (do espectador): ombro em 372,165; gira a partir do ombro -->
+    <g>
+      <animateTransform attributeName="transform" type="rotate" values="-70 372 165;-70 372 165;0 372 165;0 372 165;-70 372 165;-70 372 165;0 372 165;0 372 165;-70 372 165" keyTimes="0;.12;.2;.45;.55;.62;.7;.95;1" dur="4.5s" repeatCount="indefinite" calcMode="spline" keySplines=".4 0 1 1;.6 0 1 1;.4 0 .2 1;.4 0 1 1;.4 0 1 1;.6 0 1 1;.4 0 .2 1;.4 0 1 1"/>
+      <path class="corpo" d="M372 165 L395 230 L375 290"/>
+      <circle class="cabeca" cx="372" cy="292" r="8"/>
+    </g>
+    <!-- braço esquerdo, espelho -->
+    <g>
+      <animateTransform attributeName="transform" type="rotate" values="70 268 165;70 268 165;0 268 165;0 268 165;70 268 165;70 268 165;0 268 165;0 268 165;70 268 165" keyTimes="0;.12;.2;.45;.55;.62;.7;.95;1" dur="4.5s" repeatCount="indefinite" calcMode="spline" keySplines=".4 0 1 1;.6 0 1 1;.4 0 .2 1;.4 0 1 1;.4 0 1 1;.6 0 1 1;.4 0 .2 1;.4 0 1 1"/>
+      <path class="corpo" d="M268 165 L245 230 L265 290"/>
+      <circle class="cabeca" cx="268" cy="292" r="8"/>
+    </g>
+    <!-- "impacto" no colo -->
+    <g>
+      <path class="onda" d="M330 302 q22 14 44 0">
+        <animate attributeName="opacity" values="0;0;1;0;0;0;1;0;0" keyTimes="0;.19;.22;.4;.55;.69;.72;.9;1" dur="4.5s" repeatCount="indefinite"/>
+      </path>
+      <path class="onda" d="M266 302 q22 14 44 0">
+        <animate attributeName="opacity" values="0;0;1;0;0;0;1;0;0" keyTimes="0;.19;.22;.4;.55;.69;.72;.9;1" dur="4.5s" repeatCount="indefinite"/>
+      </path>
+    </g>
+  </g>
+  <!-- seta de peso -->
+  <g>
+    <animate attributeName="opacity" values="0;1;1;0;0;1;1;0;0" keyTimes="0;.05;.18;.25;.55;.6;.68;.75;1" dur="4.5s" repeatCount="indefinite"/>
+    <path class="seta" d="M470 150 L470 230 M455 215 L470 232 L485 215"/>
+    <text class="peso" x="450" y="260">o peso cai</text>
+  </g>
+  <text class="rot" x="24" y="385">É ESSE PESO QUE VAI TOCAR, NÃO A FORÇA DOS DEDOS</text>
+</svg>
