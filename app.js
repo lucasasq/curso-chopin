@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const C = window.CURSO;
-  const AULAS = new Map([...C.aulas, ...(C.aulasProva || [])].map(a => [a.id, a]));
+  const AULAS = new Map([...C.aulas, ...(C.aulasProva || []), ...(C.aulasRubato || [])].map(a => [a.id, a]));
   const PROVAS = C.provas || [];
   const ORDEM = C.aulas.map(a => a.id);
   const $ = (s, el = document) => el.querySelector(s);
@@ -832,6 +832,29 @@
       out.pedal = ataques.length ? Math.round(100 * certas / ataques.length) : null;
       out.pedalTrocas = pedais.filter(pd => !pd.baixo).length;
     } else if (aula.metricas.includes('pedal')) out.pedal = null;
+    // rubato: a esquerda é o relógio; a direita é livre, mas as mãos se reencontram no primeiro tempo de cada compasso
+    if (aula.metricas.includes('rubato')) {
+      const esq = porMao.E.filter(x => x.on != null).sort((a, b) => a.t - b.t || a.m - b.m);
+      const porT = new Map(); esq.forEach(x => { if (!porT.has(x.t)) porT.set(x.t, x.on); });
+      const ts = [...porT.keys()].sort((a, b) => a - b);
+      const re = [];
+      for (let i = 1; i < ts.length; i++) { const db = ts[i] - ts[i - 1]; if (db <= 0 || db > 2.01) continue; const dt = (porT.get(ts[i]) - porT.get(ts[i - 1])) / 1000; if (dt > 0) re.push(dt / db); }
+      if (re.length >= 3) {
+        const med = re.reduce((a, b) => a + b, 0) / re.length;
+        const dp = Math.sqrt(re.reduce((a, b) => a + (b - med) ** 2, 0) / re.length);
+        out.regularidadeE = clamp(Math.round(100 - (dp / med) * 200), 0, 100);
+        const comp = aula.compasso || 4; let enc = 0, tot = 0;
+        for (const t of ts) {
+          if (Math.abs(t / comp - Math.round(t / comp)) > 0.01) continue;
+          const dir = porMao.D.filter(x => x.on != null && Math.abs(x.t - t) < 0.01);
+          if (!dir.length) continue;
+          tot++;
+          const onD = Math.min(...dir.map(x => x.on));
+          if (Math.abs(onD - porT.get(t)) / 1000 <= 0.35 * med) enc++;
+        }
+        out.reencontro = tot ? Math.round(100 * enc / tot) : null; out.reencontros = { enc, tot };
+      }
+    }
     // veredito
     const p = aula.passa || {};
     const faltas = [];
@@ -840,6 +863,8 @@
     out.tempoMedido = out.regularidade != null;
     if (p.regularidade != null && out.tempoMedido && out.regularidade < p.regularidade) faltas.push(`regularidade ${out.regularidade}% (meta ${p.regularidade}%)`);
     if (p.bpm != null && out.tempoMedido && out.bpm < p.bpm) faltas.push(`tempo ♩ = ${out.bpm} (meta ♩ = ${p.bpm})`);
+    if (p.regularidadeE != null && out.regularidadeE != null && out.regularidadeE < p.regularidadeE) faltas.push(`regularidade da esquerda ${out.regularidadeE}% (meta ${p.regularidadeE}%)`);
+    if (p.reencontro != null && out.reencontro != null && out.reencontro < p.reencontro) faltas.push(`reencontro das mãos ${out.reencontro}% dos compassos (meta ${p.reencontro}%)`);
     if (p.buracosMax != null && (out.buracos ?? 0) > p.buracosMax) faltas.push(`${out.buracos} buracos no legato (máximo ${p.buracosMax})`);
     if (p.dinamica != null && (out.dinamica ?? 0) < p.dinamica) faltas.push(`dinâmica ${out.dinamica ?? 0}% (meta ${p.dinamica}%)`);
     if (p.equilibrio != null && (out.equilibrio ?? -100) < p.equilibrio) faltas.push(`melodia ${out.equilibrio == null ? '—' : out.equilibrio + '%'} mais forte que o acompanhamento (meta ${p.equilibrio}%)`);
@@ -865,6 +890,8 @@
     if (r.bpm != null && aula.passa && aula.passa.bpm && r.bpm < aula.passa.bpm) {
       d.push(`Você tocou a ♩ = ${r.bpm}. Mantenha a regularidade e suba aos poucos até ♩ = ${aula.passa.bpm}; velocidade sem regularidade não conta.`);
     }
+    if (r.regularidadeE != null && aula.passa && aula.passa.regularidadeE && r.regularidadeE < aula.passa.regularidadeE) d.push(`A esquerda oscilou (${r.regularidadeE}%). No rubato ela é o maestro: toque a esquerda sozinha com o metrônomo até ficar igual, depois junte a direita.`);
+    if (r.reencontro != null && aula.passa && aula.passa.reencontro && r.reencontro < aula.passa.reencontro) d.push(`As mãos se reencontraram em só ${r.reencontro}% dos compassos. Cada atraso da direita precisa ser pago antes do próximo baixo: demore na nota longa, corra nas curtas e chegue junto no primeiro tempo.`);
     if (r.buracos) {
       const top = Object.entries(r.ondeBuracos).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([k, v]) => `${k}${v > 1 ? ` ×${v}` : ''}`).join('; ');
       d.push(`O legato quebrou em: ${top}. Toque só esse par de notas, segurando a primeira até a segunda afundar.`);
@@ -1155,6 +1182,7 @@
     // ---- treinador em tempo real
     avaliarTempo(ev, prev) {
       if (!prev || prev.onset == null || ev.onset == null) return;
+      if (this.aula.metricas.includes('rubato') && ev.notas.every(n => n.h === 'D')) { this.desenharTreinador(); return; }
       const db = ev.t - prev.t;
       if (db <= 0 || db > 2.01 || ev.erros > 0) { this.desenharTreinador(); return; }
       const ratio = ((ev.onset - prev.onset) / 1000) / db; // segundos por tempo
@@ -1878,7 +1906,9 @@
     const p = a.passa || {};
     const met = [];
     met.push(`<div class="metrica" data-nivel="${nivel(r.acertos, p.acertos)}"><span>Notas certas</span><b>${r.acertos}%</b><span>${r.erros} erro${r.erros === 1 ? '' : 's'} em ${r.eventos}</span></div>`);
-    if (r.regularidade != null) met.push(`<div class="metrica" data-nivel="${nivel(r.regularidade, p.regularidade)}"><span>Regularidade do tempo</span><b>${r.regularidade}%</b><span>variação de ±${r.variacao}%</span></div>`);
+    if (r.regularidade != null) met.push(`<div class="metrica" data-nivel="${a.metricas.includes('rubato') ? '' : nivel(r.regularidade, p.regularidade)}"><span>Regularidade do tempo</span><b>${r.regularidade}%</b><span>variação de ±${r.variacao}%</span></div>`);
+    if (r.regularidadeE != null) met.push(`<div class="metrica" data-nivel="${nivel(r.regularidadeE, p.regularidadeE)}"><span>Regularidade da esquerda</span><b>${r.regularidadeE}%</b><span>o maestro</span></div>`);
+    if (r.reencontro != null) met.push(`<div class="metrica" data-nivel="${nivel(r.reencontro, p.reencontro)}"><span>Reencontro no compasso</span><b>${r.reencontro}%</b><span>${r.reencontros.enc} de ${r.reencontros.tot} compassos</span></div>`);
     if (r.bpm != null) met.push(`<div class="metrica" data-nivel="${p.bpm ? (r.bpm >= p.bpm ? 'ok' : 'warn') : ''}"><span>Seu tempo</span><b>♩ = ${r.bpm}</b><span>${p.bpm ? 'meta ♩ = ' + p.bpm : ''}</span></div>`);
     if (r.buracos != null) met.push(`<div class="metrica" data-nivel="${r.buracos <= (p.buracosMax ?? 1) ? 'ok' : r.buracos <= 3 ? 'warn' : 'bad'}"><span>Buracos no legato</span><b>${r.buracos}</b><span>${r.embolou ? r.embolou + ' notas emboladas' : 'silêncios entre notas ligadas'}</span></div>`);
     if (r.staccato != null) met.push(`<div class="metrica" data-nivel="${r.staccato >= 70 ? 'ok' : r.staccato >= 50 ? 'warn' : 'bad'}"><span>Staccato curto</span><b>${r.staccato}%</b><span>notas que soltaram cedo</span></div>`);
@@ -2671,13 +2701,14 @@
 
 
   /* ------------------------------------------------------------ jornada do dia (Hoje) */
-  const LIMITE_MIN = 45;
+  const MIN_DIA_PADRAO = 45;
   const Jornada = {
     ativa: false,
+    get limite() { return clamp(+estado.prefs.minutosDia || MIN_DIA_PADRAO, 20, 120); },
     get hoje() { const j = estado.jornada; return j && j.dia === hojeStr() ? j : null; },
     garantir() { if (!this.hoje) { estado.jornada = { dia: hojeStr(), passo: 0, feitos: {} }; salvar(); } return estado.jornada; },
-    minutosHoje() { return estado.sessoes.filter(s => s.dia === hojeStr() && !s.aula.startsWith('ouvido:') && (!s.aula.startsWith('m:') || s.jornada)).reduce((a, s) => a + (s.minutos || 0), 0); },
-    bloqueado() { return this.minutosHoje() >= LIMITE_MIN; },
+    minutosHoje() { return estado.sessoes.filter(s => s.dia === hojeStr() && ((!s.aula.startsWith('ouvido:') && !s.aula.startsWith('m:')) || s.jornada)).reduce((a, s) => a + (s.minutos || 0), 0); },
+    bloqueado() { return this.minutosHoje() >= Jornada.limite; },
     ehTecnica(a) { return a.tipo === 'pratica' && [1, 2, 8, 9, 12].includes(a.modulo) && a.id !== '1-1'; },
     ultimaSessao(id) { let t = ''; estado.sessoes.forEach(s => { if (s.aula === id && s.quando > t) t = s.quando; }); return t; },
     plano() {
@@ -2699,18 +2730,42 @@
         tecnica = pool[0] || '2-1';
       }
       const modEx = C.modulos.find(m => m.n === AULAS.get(exercicio).modulo);
-      const passos = [
-        { tipo: 'corpo', aula: '1-1', min: 5, titulo: 'Corpo', sub: 'Soltar ombros, braço e pulso' },
-        { tipo: 'aula', aula: tecnica, min: 10, titulo: 'Técnica', sub: AULAS.get(tecnica).titulo },
-        provaAgora ? { tipo: 'prova', nivel: provaAgora, min: 15, titulo: 'Prova de nível', sub: provaDe(provaAgora).titulo }
-          : { tipo: 'aula', aula: exercicio, min: 15, titulo: 'Exercício ou peça', sub: AULAS.get(exercicio).titulo },
-        { tipo: 'ouvir', modulo: modEx, min: 5, titulo: 'Ouvir e cantar', sub: modEx && modEx.ouvir ? modEx.ouvir.rotulo : 'A gravação do módulo' },
-      ];
       // 5) revisão: a aula em andamento mais recente que ainda não passou (se houver)
       const emAndamento = ORDEM.filter(id => statusAula(id) === 'andamento' && ![tecnica, exercicio, '1-1'].includes(id));
       emAndamento.sort((x, y) => this.ultimaSessao(y).localeCompare(this.ultimaSessao(x)));
-      if (emAndamento[0]) passos.push({ tipo: 'aula', aula: emAndamento[0], min: 10, titulo: 'Revisão', sub: AULAS.get(emAndamento[0]).titulo });
-      // aulas extras: depois da jornada, enquanto não bater o limite do dia
+      // rubato: a partir do módulo 4, rodízio dos três exercícios (o menos recente primeiro)
+      const rubs = (C.aulasRubato || []).map(a => a.id).sort((x, y) => this.ultimaSessao(x).localeCompare(this.ultimaSessao(y)));
+      const modAtualN = AULAS.get(exercicio).modulo;
+      // peça/aula extra: a aula seguinte à do dia
+      const extra2 = ordem.find(id => !feita(id) && id !== exercicio && id !== tecnica && !aulaTrancada(id)) || null;
+      // ---- distribuição do tempo do dia por prioridade
+      const T = this.limite;
+      const blocos = [
+        { tipo: 'corpo', aula: '1-1', titulo: 'Corpo', sub: 'Soltar ombros, braço e pulso', fixo: T < 30 ? 3 : 5 },
+        { tipo: 'aula', aula: tecnica, titulo: 'Técnica', sub: AULAS.get(tecnica).titulo, peso: 3, min: T < 30 ? 4 : 5, max: 25 },
+        provaAgora ? { tipo: 'prova', nivel: provaAgora, titulo: 'Prova de nível', sub: provaDe(provaAgora).titulo, fixo: 15 }
+          : { tipo: 'aula', aula: exercicio, titulo: 'Exercício ou peça', sub: AULAS.get(exercicio).titulo, peso: 4, min: T < 30 ? 6 : 10, max: 30 },
+        rubs.length && modAtualN >= 3 && T >= 45 ? { tipo: 'aula', aula: rubs[0], titulo: 'Rubato', sub: AULAS.get(rubs[0]).titulo, peso: 1.5, min: 5, max: 12 } : null,
+        OUV && T >= 40 ? { tipo: 'ouvido', bloco: 'cantar', titulo: 'Cantar', sub: 'Afinar com a voz: a frase antes do dedo', fixo: 4 } : null,
+        { tipo: 'ouvir', modulo: modEx, titulo: 'Ouvir e cantar', sub: modEx && modEx.ouvir ? modEx.ouvir.rotulo : 'A gravação do módulo', fixo: 5 },
+        OUV && T >= 60 ? { tipo: 'ouvido', bloco: 'tirar', titulo: 'Tirar de ouvido', sub: 'Uma frase da peça, sem partitura', fixo: 6 } : null,
+        OUV && T >= 90 ? { tipo: 'ouvido', bloco: 'ditado', titulo: 'Ditado', sub: 'Ouvir e tocar de volta', fixo: 5 } : null,
+        OUV && T >= 90 ? { tipo: 'ouvido', bloco: 'intervalos', titulo: 'Intervalos', sub: 'Achar a segunda nota', fixo: 4 } : null,
+        emAndamento[0] && T >= 30 ? { tipo: 'aula', aula: emAndamento[0], titulo: 'Revisão', sub: AULAS.get(emAndamento[0]).titulo, peso: 2, min: 5, max: 15 } : null,
+        extra2 && T >= 90 ? { tipo: 'aula', aula: extra2, titulo: 'Segunda aula', sub: AULAS.get(extra2).titulo, peso: 2, min: 10, max: 20 } : null,
+      ].filter(Boolean);
+      const fixos = blocos.reduce((s, b) => s + (b.fixo || 0), 0);
+      let resto = Math.max(0, T - fixos);
+      const flex = blocos.filter(b => b.peso);
+      const somaPeso = flex.reduce((s, b) => s + b.peso, 0) || 1;
+      flex.forEach(b => { b.min = Math.max(b.min, 1); b.mn = clamp(Math.round(resto * b.peso / somaPeso), b.min, b.max); });
+      // sobras e faltas: ajusta no exercício principal, depois na técnica
+      let dif = resto - flex.reduce((s, b) => s + b.mn, 0);
+      for (const b of [flex.find(b => b.titulo === 'Exercício ou peça'), flex.find(b => b.titulo === 'Técnica'), ...flex]) {
+        if (!b || !dif) continue;
+        const novo = clamp(b.mn + dif, b.min, b.max); dif -= novo - b.mn; b.mn = novo;
+      }
+      const passos = blocos.map(b => ({ tipo: b.tipo, aula: b.aula, nivel: b.nivel, modulo: b.modulo, bloco: b.bloco, titulo: b.titulo, sub: b.sub, min: b.fixo || b.mn }));
       const j = this.hoje;
       (j && j.extras || []).forEach(id => { if (AULAS.has(id)) passos.push({ tipo: 'aula', aula: id, min: 10, titulo: 'Extra', sub: AULAS.get(id).titulo }); });
       return passos;
@@ -2744,6 +2799,9 @@
     tick(); cronometro = setInterval(tick, 1000);
   }
 
+  document.addEventListener('change', e => {
+    if (e.target && e.target.id === 'minutos-dia') { estado.prefs.minutosDia = +e.target.value; salvar(); const j = Jornada.hoje; if (j) { j.passo = Math.min(j.passo, Jornada.plano().length - 1); } renderHoje(); }
+  });
   function renderHoje() {
     const el = $('#vista-hoje');
     Jornada.ativa = true;
@@ -2755,21 +2813,22 @@
     const dataTxt = d.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' });
     const barra = `<div class="hoje-cab">
         <span class="rotulo">Hoje · ${esc(dataTxt)}</span>
-        <div class="hoje-tempo"><div class="barra-prog" aria-hidden="true"><div style="width:${Math.min(100, Math.round(100 * min / LIMITE_MIN))}%"></div></div><span class="mono">${Math.round(min)} de ${LIMITE_MIN} min</span></div>
+        <div class="hoje-tempo"><div class="barra-prog" aria-hidden="true"><div style="width:${Math.min(100, Math.round(100 * min / Jornada.limite))}%"></div></div><span class="mono">${Math.round(min)} de ${Jornada.limite} min</span>
+          <label class="tempo-dia" title="Quanto tempo você quer treinar hoje; a jornada se divide por prioridade">Tempo do dia <select id="minutos-dia">${[20, 30, 45, 60, 75, 90, 105, 120].map(v => `<option value="${v}" ${v === Jornada.limite ? 'selected' : ''}>${v} min</option>`).join('')}</select></label></div>
         <ol class="passos-dia">${plano.map((p, i) => `<li class="${i === j.passo ? 'atual' : ''} ${Jornada.feito(i) ? 'feito' : ''}"><span class="n">${i + 1}</span><span><b>${esc(p.titulo)}</b><small>${p.min} min</small></span></li>`).join('')}</ol>
       </div>`;
     if (Jornada.bloqueado()) {
       el.innerHTML = `<div style="display:grid;gap:22px">${barra}
         <div class="hoje-fim">
           <h1>Treino de hoje completo.</h1>
-          <p class="texto">Você fez ${Math.round(min)} minutos. Chopin não deixava os alunos passarem do ponto: o curso fecha até amanhã. Se quiser continuar ao piano, toque as músicas da sua lista, como treino à parte.</p>
-          <div class="linha-botoes"><a class="btn primario" href="#ouvido">Treino de ouvido (à parte, 12 min)</a><a class="btn" href="#musicas">Tocar músicas</a><a class="btn" href="#progresso">Ver progresso</a></div>
+          <p class="texto">Você fez ${Math.round(min)} minutos. Chopin não deixava os alunos passarem do ponto: o curso fecha até amanhã (o tempo do dia pode ser mudado na aba Hoje, antes de começar). Se quiser continuar ao piano, toque as músicas da sua lista, como treino à parte.</p>
+          <div class="linha-botoes"><a class="btn primario" href="#ouvido">Treino de ouvido (à parte, 15 min)</a><a class="btn" href="#musicas">Tocar músicas</a><a class="btn" href="#progresso">Ver progresso</a></div>
         </div></div>`;
       return;
     }
     if (j.passo >= plano.length) {
       const prox = Jornada.proximaExtra(plano);
-      const restam = Math.max(0, Math.round(LIMITE_MIN - min));
+      const restam = Math.max(0, Math.round(Jornada.limite - min));
       el.innerHTML = `<div style="display:grid;gap:22px">${barra}
         <div class="hoje-fim">
           <h1>${(j.extras || []).length ? 'Etapa extra concluída.' : 'Jornada de hoje concluída.'}</h1>
@@ -2853,6 +2912,15 @@
       else if (Fluxo.ligado()) { const b = $('#hoje-continuar'); if (b) setTimeout(() => b.click(), 1500); }
       return;
     }
+    if (p.tipo === 'ouvido') {
+      const feito = Jornada.feito(j.passo) || Ouvido.feito(p.bloco);
+      if (feito && !Jornada.feito(j.passo)) Jornada.marcar(j.passo);
+      el.innerHTML = `<div style="display:grid;gap:22px">${barra}${cabPasso}<div id="hoje-ouvido"></div>${rodape(feito, null)}</div>`;
+      ligarRodape();
+      renderBlocoOuvido(p.bloco, { el: $('#hoje-ouvido'), vista: $('#vista-hoje'), aoFim: () => { liberar(); if (Fluxo.ligado()) { const b = $('#hoje-continuar'); if (b) setTimeout(() => b.click(), 2500); } } });
+      if (!feito && Fluxo.ligado()) fluxoEtapaSimples('ouvido-' + p.bloco, OUV.blocos[p.bloco].narracao, p.min);
+      return;
+    }
     if (p.tipo === 'ouvir') {
       const feito = Jornada.feito(j.passo);
       const o = p.modulo && p.modulo.ouvir;
@@ -2917,6 +2985,67 @@
     });
   }
 
+  /* ------------------------------------------------------------ voz: altura cantada pelo microfone (autocorrelação) */
+  const Voz = {
+    stream: null, fonte: null, analisador: null, raf: null, buf: null,
+    async iniciar(cb) {
+      const ctx = Som.iniciar(); if (!ctx || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return false;
+      try {
+        if (!this.stream) this.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: true }, video: false });
+      } catch (e) { return false; }
+      if (!this.analisador) {
+        this.fonte = ctx.createMediaStreamSource(this.stream);
+        this.analisador = ctx.createAnalyser(); this.analisador.fftSize = 2048;
+        this.fonte.connect(this.analisador); // não liga à saída: sem retorno nos alto-falantes
+        this.buf = new Float32Array(this.analisador.fftSize);
+      }
+      let ultimo = 0;
+      const passo = () => {
+        const agora = performance.now();
+        if (agora - ultimo < 30) { this.raf = requestAnimationFrame(passo); return; }
+        ultimo = agora;
+        this.analisador.getFloatTimeDomainData(this.buf);
+        const r = this.altura(this.buf, ctx.sampleRate);
+        cb(r.midi, r.rms);
+        this.raf = requestAnimationFrame(passo);
+      };
+      if (this.raf) cancelAnimationFrame(this.raf);
+      this.raf = requestAnimationFrame(passo);
+      return true;
+    },
+    parar() {
+      if (this.raf) cancelAnimationFrame(this.raf); this.raf = null;
+      if (this.stream) { this.stream.getTracks().forEach(t => t.stop()); this.stream = null; }
+      if (this.fonte) { try { this.fonte.disconnect(); } catch (e) { /* nada */ } }
+      this.fonte = null; this.analisador = null;
+    },
+    // autocorrelação normalizada, voz entre 70 e 1000 Hz; devolve midi fracionário ou null
+    altura(b, taxa) {
+      const n = b.length; let rms = 0;
+      for (let i = 0; i < n; i++) rms += b[i] * b[i];
+      rms = Math.sqrt(rms / n);
+      if (rms < 0.012) return { midi: null, rms };
+      const minLag = Math.floor(taxa / 1000), maxLag = Math.floor(taxa / 70);
+      let melhor = -1, melhorV = 0;
+      const corr = new Float32Array(maxLag + 1);
+      for (let lag = minLag; lag <= maxLag; lag++) {
+        let s = 0, e1 = 0, e2 = 0;
+        for (let i = 0; i < n - lag; i++) { s += b[i] * b[i + lag]; e1 += b[i] * b[i]; e2 += b[i + lag] * b[i + lag]; }
+        corr[lag] = s / (Math.sqrt(e1 * e2) + 1e-9);
+      }
+      // primeiro pico acima de 0.85 (evita pegar o dobro do período)
+      for (let lag = minLag + 1; lag < maxLag; lag++) {
+        if (corr[lag] > corr[lag - 1] && corr[lag] >= corr[lag + 1] && corr[lag] > 0.85) { melhor = lag; melhorV = corr[lag]; break; }
+      }
+      if (melhor < 0) { for (let lag = minLag; lag <= maxLag; lag++) if (corr[lag] > melhorV) { melhorV = corr[lag]; melhor = lag; } if (melhorV < 0.6) return { midi: null, rms }; }
+      // refinamento parabólico
+      const a = corr[melhor - 1] || 0, c = corr[melhor + 1] || 0, bb = corr[melhor];
+      const ajuste = (a - c) / (2 * (a - 2 * bb + c) || 1);
+      const f = taxa / (melhor + (isFinite(ajuste) ? ajuste : 0));
+      return { midi: 69 + 12 * Math.log2(f / 440), rms };
+    }
+  };
+
   /* ------------------------------------------------------------ treino de ouvido: rotina diária à parte dos 45 minutos */
   const OUV = C.ouvido || null;
   const NOME_INTERVALO = { 1: 'segunda menor', 2: 'segunda maior', 3: 'terça menor', 4: 'terça maior', 5: 'quarta justa', 6: 'trítono', 7: 'quinta justa', 8: 'sexta menor', 9: 'sexta maior', 10: 'sétima menor', 11: 'sétima maior', 12: 'oitava' };
@@ -2939,7 +3068,7 @@
     },
     sequencia() { // dias seguidos com os três blocos
       let n = 0; const d = new Date();
-      for (let i = 0; i < 400; i++) { const x = this.dados.dias[hojeStr(d)]; if (x && x.intervalos && x.ditado && x.tirar) n++; else if (i > 0) break; d.setDate(d.getDate() - 1); }
+      for (let i = 0; i < 400; i++) { const x = this.dados.dias[hojeStr(d)]; if (x && x.intervalos && x.ditado && x.tirar && x.cantar) n++; else if (i > 0) break; d.setDate(d.getDate() - 1); }
       return n;
     },
     intervalosDoNivel(n) {
@@ -3026,18 +3155,19 @@
       </article>`;
     }).join('');
     el.innerHTML = `<div style="display:grid;gap:22px">
-      <div class="aula-cab"><span class="rotulo">À parte dos ${LIMITE_MIN} minutos · não cansa a mão</span><h1>${esc(OUV.titulo)}</h1><p class="texto">${esc(OUV.texto)}</p>
-        <div class="meta"><span>Nível de ouvido ${Ouvido.nivel} de 5</span><span>${seq} dia${seq === 1 ? '' : 's'} seguido${seq === 1 ? '' : 's'}</span><span>${Object.values(hoje).filter(Boolean).length} de 3 blocos hoje</span></div>
+      <div class="aula-cab"><span class="rotulo">À parte dos ${Jornada.limite} minutos · não cansa a mão</span><h1>${esc(OUV.titulo)}</h1><p class="texto">${esc(OUV.texto)}</p>
+        <div class="meta"><span>Nível de ouvido ${Ouvido.nivel} de 5</span><span>${seq} dia${seq === 1 ? '' : 's'} seguido${seq === 1 ? '' : 's'}</span><span>${Object.values(hoje).filter(Boolean).length} de ${Object.keys(OUV.blocos).length} blocos hoje</span></div>
         <p class="aviso">${esc(nivelTxt)}. O nível sobe depois de três dias com 85% de acerto nos intervalos e no ditado.</p></div>
       ${blocoNarracao('ouvido', 'Por que treinar o ouvido', OUV.narracao)}
       <div class="biblioteca ouvido-blocos">${cards}</div>
       <p class="aviso">Funciona com o piano MIDI e também tocando no teclado da tela. ${Midi.estado === 'conectado' ? 'Piano conectado.' : 'Sem piano conectado: use o teclado da tela ou toque em “Conectar piano” no topo.'}</p>
     </div>`;
   }
-  function renderBlocoOuvido(bloco) {
-    const el = $('#vista-ouvido'); const b = OUV.blocos[bloco]; const nivel = Ouvido.nivel;
+  function renderBlocoOuvido(bloco, opts = {}) {
+    const el = opts.el || $('#vista-ouvido'); const b = OUV.blocos[bloco]; const nivel = Ouvido.nivel;
+    const embutido = !!opts.el;
     el.innerHTML = `<div style="display:grid;gap:18px">
-      <div class="aula-cab"><span class="rotulo">Treino de ouvido · nível ${nivel}</span><h1>${esc(b.titulo)}</h1><p class="texto">${esc(b.texto)}</p></div>
+      ${embutido ? `<p class="texto">${esc(b.texto)}</p>` : `<div class="aula-cab"><span class="rotulo">Treino de ouvido · nível ${nivel}</span><h1>${esc(b.titulo)}</h1><p class="texto">${esc(b.texto)}</p></div>`}
       ${blocoNarracao('ouvido-' + bloco, 'Como fazer', b.narracao)}
       <div class="ouvido-painel" id="ouvido-painel">
         <div class="ouvido-topo"><span class="rotulo" id="ouv-rotulo">Preparando…</span><span class="mono" id="ouv-placar"></span></div>
@@ -3045,7 +3175,7 @@
         <div class="treinador"><div class="tr-msg" id="ouv-msg" aria-live="assertive">Toque em <b>Ouvir</b> para começar.</div></div>
         <div class="linha-botoes" id="ouv-botoes"></div>
       </div>
-      <div class="linha-botoes"><a class="btn" href="#ouvido">← Voltar ao treino de ouvido</a></div>
+      ${embutido ? '' : '<div class="linha-botoes"><a class="btn" href="#ouvido">← Voltar ao treino de ouvido</a></div>'}
     </div>`;
     const cv = $('#cv-ouvido'), msg = $('#ouv-msg'), rot = $('#ouv-rotulo'), placar = $('#ouv-placar'), bot = $('#ouv-botoes');
     const lo = 48, hi = 84;
@@ -3053,7 +3183,7 @@
     const teclado = tecladoOuvido(cv, lo, hi, m => { Som.iniciar(); Som.nota(m, Som.ctx.currentTime, 0.4, 0.7); if (captura) captura.entra(m); });
     const limpar = () => { if (captura) captura.cancelar(); captura = null; };
     const obs = new MutationObserver(() => { if (!document.body.contains(cv)) { destruido = true; limpar(); teclado.destruir(); obs.disconnect(); } });
-    obs.observe($('#vista-ouvido'), { childList: true });
+    obs.observe(opts.vista || $('#vista-ouvido'), { childList: true });
     const botoes = lista => { bot.innerHTML = lista.map(([id, txt, prim]) => `<button class="btn ${prim ? 'primario' : ''}" type="button" data-ouv="${id}">${txt}</button>`).join(''); };
     const marcar = pares => { const mk = new Map(); pares.forEach(([m, cor, r]) => mk.set(m, { cor: css(cor), rotulo: r ?? NOMES[m % 12], textoCor: cor === '--ok' || cor === '--bad' ? '#ffffff' : '#10121a' })); teclado.set(mk); };
     const dizer = (html, tipo) => { msg.innerHTML = html; msg.dataset.tipo = tipo || ''; };
@@ -3103,7 +3233,8 @@
         Ouvido.registrar('intervalos', r);
         rot.textContent = 'Bloco concluído'; teclado.set(new Map());
         dizer(`<b>${acertos} de ${total}</b> intervalos certos${acertos / Math.max(total, 1) >= 0.85 ? ': ótimo ouvido hoje' : '. Amanhã de novo; o ouvido cresce com a repetição'}.`, 'ok');
-        botoes([['voltar', 'Voltar ao treino de ouvido', true], ['denovo', 'Fazer de novo']]);
+        if (opts.aoFim) opts.aoFim();
+        botoes(embutido ? [['denovo', 'Fazer de novo']] : [['voltar', 'Voltar ao treino de ouvido', true], ['denovo', 'Fazer de novo']]);
       };
       bot.addEventListener('click', e => {
         const b = e.target.closest('[data-ouv]'); if (!b) return;
@@ -3155,7 +3286,8 @@
         limpar(); const total = Math.max(respondidas, acertos); Ouvido.registrar('ditado', { acertos, total: Math.max(total, 1) });
         rot.textContent = 'Bloco concluído'; teclado.set(new Map());
         dizer(`<b>${acertos} de ${total}</b> frases certas${acertos / Math.max(total, 1) >= 0.85 ? ': ótimo' : '. O ditado cresce devagar; amanhã de novo'}.`, 'ok');
-        botoes([['voltar', 'Voltar ao treino de ouvido', true], ['denovo', 'Fazer de novo']]);
+        if (opts.aoFim) opts.aoFim();
+        botoes(embutido ? [['denovo', 'Fazer de novo']] : [['voltar', 'Voltar ao treino de ouvido', true], ['denovo', 'Fazer de novo']]);
       };
       bot.addEventListener('click', e => {
         const b = e.target.closest('[data-ouv]'); if (!b) return;
@@ -3232,7 +3364,8 @@
         limpar(); Ouvido.registrar('tirar', { acertos, total: Math.max(acertos, 1), frases: acertos, peca: d.peca });
         rot.textContent = 'Bloco concluído'; teclado.set(new Map());
         dizer(`<b>${acertos} frase${acertos === 1 ? '' : 's'}</b> tirada${acertos === 1 ? '' : 's'} de ouvido hoje${prog && prog.completa ? '. Peça completa' : ''}. O progresso fica salvo para amanhã.`, 'ok');
-        botoes([['voltar', 'Voltar ao treino de ouvido', true], ['continuar', 'Continuar mais um pouco']]);
+        if (opts.aoFim) opts.aoFim();
+        botoes(embutido ? [['continuar', 'Continuar mais um pouco']] : [['voltar', 'Voltar ao treino de ouvido', true], ['continuar', 'Continuar mais um pouco']]);
       };
       bot.addEventListener('click', e => {
         const b = e.target.closest('[data-ouv]'); if (!b) return;
@@ -3249,10 +3382,110 @@
       carregar();
       return;
     }
+    /* ---------- cantar: afinador pelo microfone ---------- */
+    if (bloco === 'cantar') {
+      teclado.destruir();
+      const TOTAL = 8; let k = 0, acertos = 0, item = null, loop = null, estadoVoz = 'parado', notasCantadas = [], atualNota = null, silencioDesde = 0;
+      const cents = (a, b) => (a - b) * 100;
+      const desenhar = (midiF, alvo, est) => {
+        const { ctx, w, h } = prepararCanvas(cv); ctx.clearRect(0, 0, w, h);
+        ctx.fillStyle = css('--stage'); ctx.fillRect(0, 0, w, h);
+        const cx = w / 2, faixa = w * 0.42; // ±100 cents
+        ctx.strokeStyle = css('--stage-line'); ctx.lineWidth = 1;
+        for (const c of [-100, -50, 0, 50, 100]) { const x = cx + c / 100 * faixa; ctx.beginPath(); ctx.moveTo(x, h * 0.3); ctx.lineTo(x, h * 0.72); ctx.stroke(); }
+        ctx.fillStyle = css('--stage-text'); ctx.font = '12px system-ui, sans-serif'; ctx.textAlign = 'center';
+        ctx.fillText('baixo', cx - faixa, h * 0.85); ctx.fillText('certo', cx, h * 0.85); ctx.fillText('alto', cx + faixa, h * 0.85);
+        ctx.fillStyle = css('--ok'); ctx.globalAlpha = 0.18; ctx.fillRect(cx - 0.5 * faixa, h * 0.3, faixa, h * 0.42); ctx.globalAlpha = 1;
+        if (alvo != null) { ctx.fillStyle = css('--stage-text'); ctx.font = 'bold 15px system-ui, sans-serif'; ctx.fillText('Alvo: ' + nomeMidi(alvo), cx, h * 0.2); }
+        if (midiF != null && alvo != null) {
+          // compara na oitava mais próxima: a voz pode cantar uma oitava acima ou abaixo
+          let dif = ((midiF - alvo) % 12 + 18) % 12 - 6; const c = Math.max(-120, Math.min(120, dif * 100));
+          const x = cx + c / 100 * faixa;
+          ctx.fillStyle = Math.abs(c) <= 50 ? css('--ok') : css('--warn');
+          ctx.beginPath(); ctx.arc(x, h * 0.51, Math.min(18, h * 0.12), 0, Math.PI * 2); ctx.fill();
+          ctx.fillStyle = css('--stage-text'); ctx.font = '12px system-ui, sans-serif'; ctx.fillText(NOMES[Math.round(midiF) % 12] + (c > 0 ? ' +' : ' ') + Math.round(c) + ' c', x, h * 0.51 + 32);
+        } else if (midiF != null) { ctx.fillStyle = css('--stage-text'); ctx.font = 'bold 15px system-ui, sans-serif'; ctx.fillText('Você: ' + nomeMidi(Math.round(midiF)), cx, h * 0.51); }
+        if (est) { ctx.fillStyle = css('--stage-text'); ctx.font = '12px system-ui, sans-serif'; ctx.textAlign = 'left'; ctx.fillText(est, 10, 18); }
+      };
+      desenhar(null, null, 'Toque em Começar e permita o microfone.');
+      const tocarAlvo = () => { if (!item) return; tocarSequencia(item.notas.map((m, i) => ({ m, t: i * 1.1, d: 1 })), 60, 0.7); };
+      // segmentação: nota estável = 350 ms dentro de ±45 cents; nova nota quando muda ≥ 60 cents ou depois de silêncio
+      const ouvirVoz = (midiF, rms) => {
+        const agora = performance.now();
+        const alvo = item ? item.notas[Math.min(notasCantadas.length, item.notas.length - 1)] : null;
+        desenhar(midiF, alvo, estadoVoz === 'ouvindo' ? `Nota ${notasCantadas.length + 1} de ${item.notas.length} · cante e segure` : '');
+        if (estadoVoz !== 'ouvindo') return;
+        if (midiF == null) { if (!silencioDesde) silencioDesde = agora; if (atualNota && agora - silencioDesde > 250) atualNota = null; return; }
+        silencioDesde = 0;
+        if (!atualNota || Math.abs(cents(midiF, atualNota.ref)) > 80) { atualNota = { ref: midiF, desde: agora, soma: midiF, n: 1, fechada: false }; return; }
+        atualNota.soma += midiF; atualNota.n++; atualNota.ref = atualNota.ref * 0.9 + midiF * 0.1;
+        if (!atualNota.fechada && agora - atualNota.desde >= 350) {
+          atualNota.fechada = true;
+          notasCantadas.push(atualNota.soma / atualNota.n);
+          if (notasCantadas.length >= item.notas.length) avaliar();
+        }
+      };
+      const avaliar = () => {
+        estadoVoz = 'avaliando';
+        const alvos = item.notas; const cant = notasCantadas.slice(0, alvos.length);
+        // intervalos e frases: compara o movimento entre notas (a oitava da voz não importa); nota só: compara a classe
+        const difs = alvos.map((m, i) => (((cant[i] - m) % 12) + 18) % 12 - 6); // em semitons, na oitava mais próxima
+        const certas = difs.map(d => Math.abs(d) <= 0.5);
+        const ok = certas.every(Boolean);
+        k++; if (ok) acertos++;
+        placar.textContent = `${acertos} de ${k}`;
+        const descr = alvos.map((m, i) => `${NOMES[m % 12]}${certas[i] ? ' ✓' : ` (${difs[i] > 0 ? 'alto' : 'baixo'} ${Math.round(Math.abs(difs[i]) * 100)} c)`}`).join(' · ');
+        dizer(ok ? `<b>Afinou.</b> ${descr}` : `<b>Quase.</b> ${descr}. Ouça de novo e cante mais ${difs.find(d => Math.abs(d) > 0.5) > 0 ? 'baixo' : 'alto'}.`, ok ? 'ok' : 'erro');
+        if (ok) falar(['bem']);
+        botoes([['proxima', ok ? 'Próxima →' : 'Tentar de novo', true], ['ouvir', '▶ Ouvir o alvo'], ['pular', 'Pular'], ['parar', 'Parar']]);
+        if (ok) setTimeout(() => { if (!destruido && estadoVoz === 'avaliando') nova(); }, 2200);
+      };
+      const nova = () => {
+        if (destruido) return;
+        if (k >= TOTAL) return terminar();
+        const n = nivel <= 1 ? 1 : nivel === 2 ? (k < 4 ? 1 : 2) : (k < 2 ? 1 : k < 5 ? 2 : 3);
+        let notas;
+        if (n === 1) notas = [55 + Math.floor(Math.random() * 13)];
+        else if (n === 2) { const r = 55 + Math.floor(Math.random() * 10); const iv = sorteio(Ouvido.intervalosDoNivel(nivel).filter(x => x <= 7)); notas = [r, Math.random() < 0.5 || nivel < 4 ? r + iv : r - iv]; }
+        else { const f = fraseDitado(Math.min(nivel, 3)); notas = f.notas.slice(0, 3 + Math.floor(Math.random() * 2)).map(x => x.m - 12); }
+        item = { notas }; notasCantadas = []; atualNota = null; estadoVoz = 'ouvindo';
+        rot.textContent = `${k + 1} de ${TOTAL} · ${n === 1 ? 'uma nota' : n === 2 ? 'dois sons' : 'frase de ' + notas.length + ' notas'}`;
+        dizer(`Ouça${n === 1 ? ' a nota' : n === 2 ? ' os dois sons' : ' a frase'} e cante${n > 1 ? ', uma nota depois da outra, segurando cada uma' : ' em qualquer oitava, segurando até ficar verde'}.`);
+        botoes([['ouvir', '▶ Ouvir de novo'], ['pular', 'Pular'], ['parar', 'Parar']]);
+        tocarAlvo();
+      };
+      const terminar = () => {
+        estadoVoz = 'parado'; Voz.parar();
+        Ouvido.registrar('cantar', { acertos, total: Math.max(k, 1) });
+        rot.textContent = 'Bloco concluído'; desenhar(null, null, '');
+        dizer(`<b>${acertos} de ${k}</b> afinadas${k && acertos / k >= 0.75 ? ': a frase já está na voz' : '. Voz não se força: amanhã de novo, mais baixinho'}.`, 'ok');
+        if (opts.aoFim) opts.aoFim();
+        botoes(embutido ? [['denovo', 'Fazer de novo']] : [['voltar', 'Voltar ao treino de ouvido', true], ['denovo', 'Fazer de novo']]);
+      };
+      const comecar = async () => {
+        dizer('Pedindo o microfone…');
+        const ok = await Voz.iniciar(ouvirVoz);
+        if (!ok) { dizer('<b>Sem microfone.</b> O navegador não liberou o áudio de entrada. No iPad, abra o curso no Safari para este bloco; no app MIDIWeb o microfone pode não estar disponível.', 'erro'); botoes([['comecar', 'Tentar de novo', true], ['voltar', 'Voltar']]); return; }
+        k = 0; acertos = 0; nova();
+      };
+      bot.addEventListener('click', e => {
+        const b = e.target.closest('[data-ouv]'); if (!b) return; const q = b.dataset.ouv;
+        if (q === 'comecar') comecar();
+        if (q === 'ouvir') tocarAlvo();
+        if (q === 'proxima') { if (msg.dataset.tipo === 'ok') nova(); else { k = Math.max(0, k - 1); notasCantadas = []; atualNota = null; estadoVoz = 'ouvindo'; dizer('Mais uma vez: ouça e cante, segurando cada nota.'); tocarAlvo(); botoes([['ouvir', '▶ Ouvir de novo'], ['pular', 'Pular'], ['parar', 'Parar']]); } }
+        if (q === 'pular') { k++; nova(); }
+        if (q === 'parar') terminar();
+        if (q === 'voltar') location.hash = 'ouvido';
+        if (q === 'denovo') comecar();
+      });
+      obs.disconnect(); new MutationObserver(() => { if (!document.body.contains(cv)) { destruido = true; Voz.parar(); } }).observe(opts.vista || $('#vista-ouvido'), { childList: true });
+      botoes([['comecar', '▶ Começar (microfone)', true]]);
+      return;
+    }
   }
 
   /* ------------------------------------------------------------ início */
-  window.__curso = { avaliar, Midi, Nuvem, estado, lerMidi, planoMusica, configPadrao, aulaDaEtapa, Guia, Jornada, provaDe, provaPassada, marcarItemProva, Ouvido, Som, get player() { return playerAtual; } };
+  window.__curso = { avaliar, Midi, Nuvem, estado, lerMidi, planoMusica, configPadrao, aulaDaEtapa, Guia, Jornada, provaDe, provaPassada, marcarItemProva, Ouvido, Som, Voz, get player() { return playerAtual; } };
   if ('speechSynthesis' in window) { try { speechSynthesis.getVoices(); speechSynthesis.onvoiceschanged = () => {}; } catch (e) { /* nada */ } }
   if ('serviceWorker' in navigator && location.protocol === 'https:') { try { navigator.serviceWorker.register('sw.js').catch(() => {}); } catch (e) { /* nada */ } }
   const sair = $('#guiado-sair'); if (sair) sair.addEventListener('click', () => { Fluxo.parar(); if (playerAtual && playerAtual.tocando) playerAtual.parar(); rolar($('.topo'), 'start'); });
