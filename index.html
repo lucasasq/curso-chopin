@@ -364,6 +364,13 @@ body.foco .transporte::after { content: "Modo foco: a tela volta ao normal quand
 .figura-solta { max-width: 360px; width: 100%; border-radius: 8px; border: 1px solid var(--line); background: #FBF8F1; }
 .figura figcaption { padding: 10px 14px 12px; display: grid; gap: 3px; font-size: 0.9rem; color: var(--muted); }
 .figura figcaption b { color: var(--ink); }
+.video-aula { grid-column: 1 / -1; }
+.video-aula video { width: 100%; max-height: 70vh; display: block; background: #FBF8F1; border-bottom: 1px solid var(--line); }
+.links-externos { margin-top: 6px; }
+.links-externos summary { cursor: pointer; color: var(--accent); }
+.links-externos ul { margin: 8px 0 0; padding-left: 1.1em; display: grid; gap: 6px; }
+.links-externos li small { display: block; color: var(--muted); }
+body.guiado .video-aula { display: none; }
 
 /* ---------- progresso ---------- */
 .resumo { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
@@ -583,12 +590,12 @@ h2 { text-wrap: balance; }
   </div>
 </main>
 
-<script src="vendor/vexflow.js?v=202611121359"></script>
-<script src="partitura.js?v=202611121359"></script>
-<script src="vendor/supabase.js?v=202611121359"></script>
-<script src="config.js?v=202611121359"></script>
-<script src="dados.js?v=202611121359"></script>
-<script src="app.js?v=202611121359"></script>
+<script src="vendor/vexflow.js?v=202611121408"></script>
+<script src="partitura.js?v=202611121408"></script>
+<script src="vendor/supabase.js?v=202611121408"></script>
+<script src="config.js?v=202611121408"></script>
+<script src="dados.js?v=202611121408"></script>
+<script src="app.js?v=202611121408"></script>
 
 </body>
 </html>

@@ -1750,9 +1750,17 @@
     montarPlayer(a, { aoPassar: () => { if (prox && !Jornada.bloqueado()) location.hash = aulaTrancada(prox) ? 'prova-' + (nivelDaAula(prox) - 1) : 'aula-' + prox; else location.hash = 'curso'; }, ultimo: !prox });
   }
 
+  function videoHTML(v) {
+    if (!v) return '';
+    return `<figure class="figura video-aula">
+      <video controls playsinline preload="metadata" poster="${esc(v.poster || '')}" src="${esc(v.src)}" aria-label="${esc(v.titulo)}"></video>
+      <figcaption><b>${esc(v.titulo)}${v.min ? ` <span class="mono suave">· ${esc(v.min)}</span>` : ''}</b><span>${esc(v.texto || '')}</span>
+        ${v.links && v.links.length ? `<details class="links-externos"><summary>Ver também: aulas de outros professores</summary><ul>${v.links.map(l => `<li><a href="${esc(l.u)}" target="_blank" rel="noopener">${esc(l.t)}</a><small>${esc(l.q || '')}</small></li>`).join('')}</ul></details>` : ''}</figcaption>
+    </figure>`;
+  }
   function figurasHTML(a) {
-    if (!a.figuras || !a.figuras.length) return '';
-    return `<div class="figuras">${a.figuras.map(f => `<figure class="figura">
+    if ((!a.figuras || !a.figuras.length) && !a.video) return '';
+    return `<div class="figuras">${videoHTML(a.video)}${(a.figuras || []).map(f => `<figure class="figura">
         ${f.img ? `<img class="ilustracao" src="img/${esc(f.img)}" alt="${esc(f.titulo)}, ilustração" loading="lazy" onerror="this.remove()">` : ''}
         ${f.anim ? `<div class="anim" aria-label="${esc(f.titulo)}, animação">${[1, 2, 3].map(k => `<img src="img/${esc(f.anim)}-${k}.jpg" alt="" loading="lazy" style="--k:${k - 1}" onerror="this.parentElement.remove()">`).join('')}</div>` : ''}
         <figcaption><b>${esc(f.titulo)}</b><span>${esc(f.legenda)}</span></figcaption>
