@@ -395,6 +395,7 @@
   async function rodarGuia(a, pl) {
     Narr.parar();
     Guia.cancelado = false; Guia.ativo = true;
+    rolar($('.palco', pl.raiz));
     try { if ('speechSynthesis' in window && !Guia.cache.size) speechSynthesis.speak(new SpeechSynthesisUtterance(' ')); } catch (e) { /* iOS: destrava a voz dentro do toque */ }
     for (let i = 0; i < a.guia.length && !Guia.cancelado; i++) {
       const g = a.guia[i];
@@ -425,7 +426,27 @@
 
 
   /* ------------------------------------------------------------ fluxo automático: explica, guia, pratica, avança */
-  const rolar = (el, block = 'center') => { if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block }); };
+  const rolar = (el, block = 'center') => {
+    if (!el) return;
+    const ir = () => {
+      if (!el.isConnected) return;
+      const r = el.getBoundingClientRect();
+      const topo = $('.topo'); const altTopo = (topo && getComputedStyle(topo).display !== 'none') ? topo.offsetHeight : 0;
+      let y = window.scrollY + r.top - altTopo - 12;
+      if (block === 'center') y = window.scrollY + r.top - Math.max(altTopo + 12, (window.innerHeight - r.height) / 2);
+      window.scrollTo({ top: Math.max(0, Math.round(y)), behavior: 'smooth' });
+    };
+    requestAnimationFrame(ir);
+    // a página cresce quando as ilustrações carregam: por 3 s, cada mudança de altura refaz a rolagem
+    if (rolar.ro) rolar.ro.disconnect(); clearTimeout(rolar.t);
+    if ('ResizeObserver' in window) {
+      let alt = document.body.scrollHeight;
+      rolar.ro = new ResizeObserver(() => { if (document.body.scrollHeight !== alt) { alt = document.body.scrollHeight; ir(); } });
+      rolar.ro.observe(document.body);
+      rolar.t = setTimeout(() => { rolar.ro.disconnect(); rolar.ro = null; }, 3000);
+    } else rolar.t = setTimeout(ir, 700);
+  };
+  const guiado = ligado => document.body.classList.toggle('guiado', !!ligado);
   const Fluxo = {
     ativo: false, pendente: null, timer: null, cancelado: false,
     ligado() { return estado.prefs.fluxo !== false; },
@@ -434,6 +455,7 @@
       if (this.timer) { clearInterval(this.timer); this.timer = null; }
       Guia.parar(); if (Guia.atual) Guia.atual.parar();
       const b = $('#fluxo-barra'); if (b) b.remove();
+      guiado(false);
     },
     async falar(id, texto) {
       Guia.cancelado = false; Guia.pularPasso = false; Guia.ativo = true;
@@ -451,8 +473,9 @@
     // aula prática: explicação (ou aula guiada) → praticar → resultado → avança ou repete
     async pratica(a, pl, aoPassar) {
       this.parar(); Narr.parar(); this.cancelado = false; this.ativo = true;
+      guiado(true);
       const raiz = pl.raiz;
-      rolar(raiz, 'start');
+      rolar($('.palco', raiz));
       pl.atualizarStatus('Explicação: ouça e veja as teclas acesas.');
       if (a.guia && a.guia.length) {
         await rodarGuia(a, pl);
@@ -2816,6 +2839,7 @@
     if (!Fluxo.ligado()) return;
     Fluxo.quandoPuder(async () => {
       Fluxo.parar(); Fluxo.cancelado = false; Fluxo.ativo = true;
+      guiado(true);
       rolar($('.figuras') || $('.peca-box') || $('.guia'), 'start');
       if (idNarr) await Fluxo.falar(idNarr, texto);
     });
@@ -2825,6 +2849,7 @@
   window.__curso = { avaliar, Midi, Nuvem, estado, lerMidi, planoMusica, configPadrao, aulaDaEtapa, Guia, Jornada, provaDe, provaPassada, marcarItemProva, get player() { return playerAtual; } };
   if ('speechSynthesis' in window) { try { speechSynthesis.getVoices(); speechSynthesis.onvoiceschanged = () => {}; } catch (e) { /* nada */ } }
   if ('serviceWorker' in navigator && location.protocol === 'https:') { try { navigator.serviceWorker.register('sw.js').catch(() => {}); } catch (e) { /* nada */ } }
+  const sair = $('#guiado-sair'); if (sair) sair.addEventListener('click', () => { Fluxo.parar(); if (playerAtual && playerAtual.tocando) playerAtual.parar(); rolar($('.topo'), 'start'); });
   Midi.iniciar(false);
   Nuvem.iniciar();
   rota();
