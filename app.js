@@ -2,7 +2,8 @@
 (() => {
   'use strict';
   const C = window.CURSO;
-  const AULAS = new Map(C.aulas.map(a => [a.id, a]));
+  const AULAS = new Map([...C.aulas, ...(C.aulasProva || [])].map(a => [a.id, a]));
+  const PROVAS = C.provas || [];
   const ORDEM = C.aulas.map(a => a.id);
   const $ = (s, el = document) => el.querySelector(s);
   const $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -29,9 +30,10 @@
     prefs: Object.assign({ tempo: 1, tempoMusica: 0.6, metronomo: false, nomes: false, repetir: false, partitura: true, fluxo: true }, store.get('prefs', {})),
     musicas: store.get('musicas', []),
     jornada: store.get('jornada', null),
-    niveisVistos: store.get('niveisVistos', [])
+    niveisVistos: store.get('niveisVistos', []),
+    provas: store.get('provas', {})
   };
-  const salvar = () => { store.set('sessoes', estado.sessoes); store.set('status', estado.status); store.set('prefs', estado.prefs); store.set('musicas', estado.musicas); store.set('jornada', estado.jornada); store.set('niveisVistos', estado.niveisVistos); };
+  const salvar = () => { store.set('sessoes', estado.sessoes); store.set('status', estado.status); store.set('prefs', estado.prefs); store.set('musicas', estado.musicas); store.set('jornada', estado.jornada); store.set('niveisVistos', estado.niveisVistos); store.set('provas', estado.provas); };
   const hojeStr = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
   function statusAula(id) {
@@ -49,6 +51,22 @@
   function proximaAula() {
     for (const id of ORDEM) if (statusAula(id) !== 'ok') return id;
     return ORDEM[ORDEM.length - 1];
+  }
+  /* ------------------------------------------------------------ provas de nível e tranca entre níveis */
+  const nivelDaAula = id => { const a = AULAS.get(id); if (!a) return 0; if (a.prova) return a.prova; const m = C.modulos.find(x => x.n === a.modulo); return m ? (m.nivel || 0) : 0; };
+  const provaDe = n => PROVAS.find(p => p.nivel === n);
+  const provaPassada = n => !!(estado.provas[n] && estado.provas[n].concluida);
+  const itemProvaOk = id => Object.values(estado.provas).some(p => p.itens && p.itens[id]);
+  function nivelCompleto(n) { const ids = C.aulas.filter(a => nivelDaAula(a.id) === n).map(a => a.id); return ids.length > 0 && ids.every(id => statusAula(id) === 'ok'); }
+  function provaPendente(n) { return provaDe(n) && nivelCompleto(n) && !provaPassada(n); }
+  function aulaTrancada(id) { const n = nivelDaAula(id); return n > 1 && !!provaDe(n - 1) && !provaPassada(n - 1); }
+  function marcarItemProva(id) {
+    const a = AULAS.get(id); if (!a || !a.prova) return;
+    const p = estado.provas[a.prova] = estado.provas[a.prova] || { itens: {} };
+    p.itens[id] = hojeStr();
+    const pr = provaDe(a.prova);
+    if (pr && pr.itens.every(it => p.itens[it.id]) && !p.concluida) p.concluida = hojeStr();
+    salvar();
   }
   function registrarSessao(s) {
     if (Jornada.ativa) s.jornada = true;
@@ -1308,7 +1326,8 @@
     const h = (location.hash || '#hoje').slice(1);
     let vista = 'curso', aulaId = null;
     const primeiraVez = !estado.sessoes.length && !estado.prefs.introVista;
-    if (h === 'introducao' || ((h === 'hoje' || h === '') && primeiraVez)) vista = 'introducao';
+    if (h.startsWith('prova-') && provaDe(+h.slice(6))) vista = 'prova';
+    else if (h === 'introducao' || ((h === 'hoje' || h === '') && primeiraVez)) vista = 'introducao';
     else if (h === 'hoje' || h === '') vista = 'hoje';
     else if (h.startsWith('aula-')) { aulaId = h.slice(5); vista = AULAS.has(aulaId) ? 'aula' : 'curso'; }
     else if (h === 'progresso') vista = 'progresso';
@@ -1321,6 +1340,7 @@
     $$('.vista').forEach(v => { v.hidden = v.id !== 'vista-' + vista; if (v.hidden) v.innerHTML = ''; });
     $$('.nav a').forEach(a => { if (a.dataset.nav === vista) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); });
     $('#nav-aula').href = '#aula-' + (aulaId || proximaAula());
+    if (vista === 'prova') renderProva(+h.slice(6));
     if (vista === 'introducao') renderIntroducao();
     if (vista === 'hoje') renderHoje();
     if (vista === 'curso') renderCurso();
@@ -1391,6 +1411,7 @@
             ${nv.meta ? `<p class="texto"><b>Ao terminar:</b> ${esc(nv.meta)}</p>` : ''}
           </div>
           <div class="modulos">${mods.map(moduloHTML).join('')}</div>
+          ${provaDe(nv.n) ? `<div class="prova-linha"><span class="rotulo">Fim do nível</span><a href="#prova-${nv.n}" class="btn ${provaPassada(nv.n) ? '' : 'primario'}">${esc(provaDe(nv.n).titulo)} →</a>${provaPassada(nv.n) ? '<span class="chip ok">aprovada</span>' : nivelCompleto(nv.n) ? '<span class="chip andamento">liberada</span>' : '<span class="chip">abre ao concluir as aulas</span>'}</div>` : ''}
         </div>`;
       }).join('')}
 
@@ -1403,6 +1424,51 @@
         <h2>Fontes</h2>
         <ul class="fontes">${C.fontes.map(f => `<li>${f.url ? `<a href="${esc(f.url)}" target="_blank" rel="noopener">${esc(f.t)}</a>` : esc(f.t)}</li>`).join('')}</ul>
       </div>`;
+  }
+  function renderProva(n) {
+    const el = $('#vista-prova');
+    const pr = provaDe(n);
+    const p = estado.provas[n] || { itens: {} };
+    const feitos = pr.itens.filter(it => p.itens[it.id]).length;
+    const prox = pr.itens.find(it => !p.itens[it.id]);
+    const liberada = nivelCompleto(n);
+    el.innerHTML = `<div style="display:grid;gap:24px">
+      <div class="aula-cab"><span class="rotulo">Prova de nível · ${feitos} de ${pr.itens.length} itens aprovados</span><h1>${esc(pr.titulo)}</h1>
+        <div class="barra-prog" aria-hidden="true"><div style="width:${Math.round(100 * feitos / pr.itens.length)}%"></div></div></div>
+      ${blocoNarracao('prova-' + n, 'Briefing da prova', pr.briefing)}
+      <div class="peca-box"><div class="peca-info"><span class="rotulo">Critério de aprovação</span>
+        <p class="texto"><b>100% das notas certas</b>, <b>tempo na meta</b> do exercício e <b>regularidade de pelo menos 90%</b> (nenhum humano é um metrônomo: a tolerância é de mais ou menos dez por cento entre uma nota e outra). Onde a aula mede legato, nenhum buraco; onde mede dinâmica ou equilíbrio, a mesma meta da aula.</p>
+        <p class="aviso">Cada item pode ser repetido quantas vezes for preciso. A prova fica aberta até todos passarem; o nível seguinte só abre depois dela.</p></div>
+        ${p.concluida ? `<div class="veredito"><span class="selo" style="background:color-mix(in srgb, var(--ok) 18%, transparent);color:var(--ok)">Aprovado</span><h3>Prova concluída em ${esc(p.concluida)}. O nível ${n + 1} está aberto.</h3></div><div class="linha-botoes"><a class="btn primario" href="#hoje">Seguir para a jornada →</a></div>`
+          : liberada ? `<div class="linha-botoes"><a class="btn primario" href="#aula-${prox ? prox.id : pr.itens[0].id}">${feitos ? 'Continuar a prova' : 'Começar a prova'} →</a></div>`
+          : `<p class="aviso">A prova abre quando todas as aulas do nível ${n} estiverem concluídas. <a href="#aula-${proximaAula()}">Continuar o nível ${n} →</a></p>`}
+      </div>
+      <div class="secao" style="padding-top:0"><h2>Os itens</h2>
+        <ol class="etapas" style="max-height:none">${pr.itens.map((it, k) => `<li><a class="etapa" href="#aula-${it.id}" ${prox && prox.id === it.id ? 'aria-current="step"' : ''}>
+          <span class="n">${k + 1}</span><span class="t"><b>${esc(it.titulo)}</b><br><span class="suave" style="font-size:.85rem">${esc(it.tecnica)}</span></span>${p.itens[it.id] ? '<span class="chip ok">aprovado</span>' : prox && prox.id === it.id ? '<span class="chip">próximo</span>' : ''}</a></li>`).join('')}</ol>
+      </div></div>`;
+  }
+  function renderItemProva(a) {
+    const el = $('#vista-aula');
+    const pr = provaDe(a.prova);
+    const k = pr.itens.findIndex(it => it.id === a.id);
+    const prox = pr.itens[k + 1], ok = itemProvaOk(a.id);
+    el.innerHTML = `<div style="display:grid;gap:22px">
+      <div class="aula-cab"><span class="rotulo">${esc(pr.titulo)} · item ${k + 1} de ${pr.itens.length}</span><h1>${esc(a.titulo)}</h1>
+        <p class="texto suave">${esc(a.resumo)}</p>
+        <div class="meta"><span>♩ = ${a.bpm}</span><span>${a.compasso}/4</span>${a.maos ? `<span>${{ D: 'mão direita', E: 'mão esquerda', DE: 'mãos juntas', 'D,E': 'uma mão de cada vez' }[a.maos]}</span>` : ''}${ok ? '<span class="chip ok">aprovado</span>' : ''}</div></div>
+      ${blocoNarracao('aula-' + a.id, 'O que é esta técnica', a.narracao)}
+      ${htmlPlayer(a)}
+      <div id="resultado"></div>
+      <div class="aula-info"><div><h3>O que fazer</h3><ol>${a.passos.map(x => `<li>${esc(x)}</li>`).join('')}</ol></div>
+        <div><h3>O que observar</h3><ul>${a.foco.map(x => `<li>${esc(x)}</li>`).join('')}</ul><div class="criterio"><span class="rotulo">Para passar na prova</span><p>${esc(a.criterio)}</p></div></div></div>
+      ${historicoAula(a.id)}
+      <div class="navaulas"><a class="btn" href="#prova-${a.prova}">← Voltar à prova</a>${prox ? `<a class="btn" href="#aula-${prox.id}">Item ${k + 2} →</a>` : '<span></span>'}</div></div>`;
+    montarPlayer(a, {
+      aoResultado: ({ r }) => { if (r.passou && !r.parcial) { marcarItemProva(a.id); const cab = $('.aula-cab .meta'); if (cab && !cab.querySelector('.chip')) cab.insertAdjacentHTML('beforeend', '<span class="chip ok">aprovado</span>'); } },
+      aoPassar: () => { location.hash = prox ? 'aula-' + prox.id : 'prova-' + a.prova; },
+      ultimo: !prox,
+    });
   }
   function renderIntroducao() {
     const el = $('#vista-introducao');
@@ -1481,6 +1547,14 @@
   function renderAula(id) {
     const a = AULAS.get(id);
     const el = $('#vista-aula');
+    if (a.prova) { renderItemProva(a); return; }
+    if (aulaTrancada(id)) {
+      const n = nivelDaAula(id) - 1;
+      el.innerHTML = `<div style="display:grid;gap:22px"><div class="aula-cab"><span class="rotulo">Nível ${n + 1} · trancado</span><h1>${idTexto(id)} · ${esc(a.titulo)}</h1>
+        <p class="texto">Esta aula abre depois da <b>prova do nível ${n}</b>: a reavaliação de cada técnica do nível, com 100% das notas certas e o tempo na meta.${nivelCompleto(n) ? '' : ' Antes dela, faltam aulas do nível ' + n + '.'}</p>
+        <div class="linha-botoes">${nivelCompleto(n) ? `<a class="btn primario" href="#prova-${n}">Fazer a prova do nível ${n} →</a>` : `<a class="btn primario" href="#aula-${proximaAula()}">Continuar o nível ${n} →</a>`}<a class="btn" href="#curso">Ver o curso</a></div></div></div>`;
+      return;
+    }
     const mod = C.modulos.find(m => m.n === a.modulo);
     const i = ORDEM.indexOf(id);
     const ant = ORDEM[i - 1], prox = ORDEM[i + 1];
@@ -1573,7 +1647,7 @@
       ${info}
       ${historicoAula(id)}
       ${navAulas}</div>`;
-    montarPlayer(a, { aoPassar: () => { if (prox && !Jornada.bloqueado()) location.hash = 'aula-' + prox; else location.hash = 'curso'; }, ultimo: !prox });
+    montarPlayer(a, { aoPassar: () => { if (prox && !Jornada.bloqueado()) location.hash = aulaTrancada(prox) ? 'prova-' + (nivelDaAula(prox) - 1) : 'aula-' + prox; else location.hash = 'curso'; }, ultimo: !prox });
   }
 
   function figurasHTML(a) {
@@ -1793,7 +1867,7 @@
         <div class="dias">${dias.map(d => `<span>${d.slice(8)}/${d.slice(5, 7)}</span>`).join('')}</div>
       </div>
       <div style="display:grid;gap:10px"><h2>Níveis</h2>
-        <div class="niveis-prog">${(C.niveis || []).map(nv => { const ids = C.aulas.filter(a => C.modulos.some(m => m.n === a.modulo && (m.nivel || 0) === nv.n)).map(a => a.id); const ok = ids.filter(id => statusAula(id) === 'ok').length; return `<div class="nivel-prog"><div class="cab"><b>Nível ${nv.n} · ${esc(nv.titulo.split(':')[0])}</b><span class="mono">${ok} / ${ids.length}${ok === ids.length && ids.length ? ' · concluído' : ''}</span></div><div class="barra-prog" aria-hidden="true"><div style="width:${ids.length ? Math.round(100 * ok / ids.length) : 0}%"></div></div></div>`; }).join('')}</div>
+        <div class="niveis-prog">${(C.niveis || []).map(nv => { const ids = C.aulas.filter(a => C.modulos.some(m => m.n === a.modulo && (m.nivel || 0) === nv.n)).map(a => a.id); const ok = ids.filter(id => statusAula(id) === 'ok').length; return `<div class="nivel-prog"><div class="cab"><b>Nível ${nv.n} · ${esc(nv.titulo.split(':')[0])}</b><span class="mono">${ok} / ${ids.length}${provaDe(nv.n) ? (provaPassada(nv.n) ? ' · prova aprovada' : ok === ids.length ? ' · prova pendente' : '') : ''}</span></div><div class="barra-prog" aria-hidden="true"><div style="width:${ids.length ? Math.round(100 * ok / ids.length) : 0}%"></div></div></div>`; }).join('')}</div>
       </div>
       <div style="display:grid;gap:10px"><h2>Aulas</h2>
         <div class="tabela-wrap"><table>
@@ -2485,6 +2559,7 @@
       const ordem = ORDEM.filter(id => id !== '1-1');
       // 3) exercício ou peça: a próxima aula do curso ainda não concluída
       let exercicio = ordem.find(id => !feita(id)) || ordem[ordem.length - 1];
+      const provaAgora = PROVAS.map(p => p.nivel).find(n => provaPendente(n));
       // 2) técnica: enquanto o nível 1 não acabou, a próxima aula dele; depois, rodízio das escalas já liberadas
       const nivel1 = ordem.filter(id => AULAS.get(id).modulo <= 2);
       let tecnica = nivel1.find(id => !feita(id));
@@ -2501,7 +2576,8 @@
       const passos = [
         { tipo: 'corpo', aula: '1-1', min: 5, titulo: 'Corpo', sub: 'Soltar ombros, braço e pulso' },
         { tipo: 'aula', aula: tecnica, min: 10, titulo: 'Técnica', sub: AULAS.get(tecnica).titulo },
-        { tipo: 'aula', aula: exercicio, min: 15, titulo: 'Exercício ou peça', sub: AULAS.get(exercicio).titulo },
+        provaAgora ? { tipo: 'prova', nivel: provaAgora, min: 15, titulo: 'Prova de nível', sub: provaDe(provaAgora).titulo }
+          : { tipo: 'aula', aula: exercicio, min: 15, titulo: 'Exercício ou peça', sub: AULAS.get(exercicio).titulo },
         { tipo: 'ouvir', modulo: modEx, min: 5, titulo: 'Ouvir e cantar', sub: modEx && modEx.ouvir ? modEx.ouvir.rotulo : 'A gravação do módulo' },
       ];
       // 5) revisão: a aula em andamento mais recente que ainda não passou (se houver)
@@ -2515,14 +2591,15 @@
     },
     proximaExtra(plano) {
       const usadas = new Set(plano.map(p => p.aula).filter(Boolean));
-      return ORDEM.find(id => id !== '1-1' && !usadas.has(id) && statusAula(id) !== 'ok') || null;
+      const id = ORDEM.find(x => x !== '1-1' && !usadas.has(x) && statusAula(x) !== 'ok') || null;
+      return id && !aulaTrancada(id) ? id : null;
     },
     adicionarExtra(id) { const j = this.garantir(); j.extras = j.extras || []; j.extras.push(id); j.passo = this.plano().length - 1; salvar(); },
     marcar(passo) { const j = this.garantir(); j.feitos[passo] = true; salvar(); },
     feito(passo) { const j = this.hoje; return !!(j && j.feitos[passo]); },
     inicioPasso(passo) { const j = this.garantir(); j.inicios = j.inicios || {}; if (!j.inicios[passo]) { j.inicios[passo] = Date.now(); salvar(); } return j.inicios[passo]; },
     niveisConcluidos() {
-      return (C.niveis || []).filter(nv => { const ids = C.aulas.filter(a => C.modulos.some(m => m.n === a.modulo && (m.nivel || 0) === nv.n)).map(a => a.id); return ids.length && ids.every(id => statusAula(id) === 'ok'); }).map(nv => nv.n);
+      return (C.niveis || []).filter(nv => nivelCompleto(nv.n) && (!provaDe(nv.n) || provaPassada(nv.n))).map(nv => nv.n);
     }
   };
   let cronometro = null;
@@ -2632,6 +2709,23 @@
       else if (Fluxo.ligado()) { const b = $('#hoje-continuar'); if (b) setTimeout(() => b.click(), 1500); }
       return;
     }
+    if (p.tipo === 'prova') {
+      const pr = provaDe(p.nivel);
+      const feito = provaPassada(p.nivel);
+      if (feito) Jornada.marcar(j.passo);
+      const pv = estado.provas[p.nivel] || { itens: {} };
+      const aprov = pr.itens.filter(it => pv.itens[it.id]).length;
+      el.innerHTML = `<div style="display:grid;gap:22px">${barra}${cabPasso}
+        ${blocoNarracao('prova-' + p.nivel, 'Briefing da prova', pr.briefing)}
+        <div class="peca-box"><div class="peca-info"><span class="rotulo">Reavaliação do nível ${p.nivel}</span>
+          <p class="texto">Todas as aulas do nível ${p.nivel} estão concluídas. Agora cada técnica é reavaliada com 100% das notas e o tempo na meta. ${aprov} de ${pr.itens.length} itens aprovados.</p></div>
+          <div class="linha-botoes"><a class="btn primario" href="#prova-${p.nivel}">${aprov ? 'Continuar a prova' : 'Fazer a prova'} →</a></div></div>
+        ${rodape(feito, null)}</div>`;
+      ligarRodape();
+      if (!feito) fluxoEtapaSimples('prova-' + p.nivel, pr.briefing, p.min);
+      else if (Fluxo.ligado()) { const b = $('#hoje-continuar'); if (b) setTimeout(() => b.click(), 1500); }
+      return;
+    }
     if (p.tipo === 'ouvir') {
       const feito = Jornada.feito(j.passo);
       const o = p.modulo && p.modulo.ouvir;
@@ -2696,7 +2790,7 @@
   }
 
   /* ------------------------------------------------------------ início */
-  window.__curso = { avaliar, Midi, Nuvem, estado, lerMidi, planoMusica, configPadrao, aulaDaEtapa, Guia, Jornada, get player() { return playerAtual; } };
+  window.__curso = { avaliar, Midi, Nuvem, estado, lerMidi, planoMusica, configPadrao, aulaDaEtapa, Guia, Jornada, provaDe, provaPassada, marcarItemProva, get player() { return playerAtual; } };
   if ('speechSynthesis' in window) { try { speechSynthesis.getVoices(); speechSynthesis.onvoiceschanged = () => {}; } catch (e) { /* nada */ } }
   if ('serviceWorker' in navigator && location.protocol === 'https:') { try { navigator.serviceWorker.register('sw.js').catch(() => {}); } catch (e) { /* nada */ } }
   Midi.iniciar(false);

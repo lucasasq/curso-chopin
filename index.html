@@ -449,6 +449,8 @@ h2 { text-wrap: balance; }
 
 /* ---------- níveis, peças e biblioteca ---------- */
 .nivel-cab { display: grid; gap: 6px; }
+.prova-linha { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 14px 0 0; }
+.etapas a.etapa { text-decoration: none; }
 .nivel-cab h2 { font-size: clamp(1.7rem, 3vw, 2.3rem); }
 .peca-box {
   background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px 20px;
@@ -549,6 +551,7 @@ h2 { text-wrap: balance; }
 <main class="gutter">
   <div class="wrap">
     <section class="vista" id="vista-introducao" aria-label="Introdução" hidden></section>
+    <section class="vista" id="vista-prova" aria-label="Prova de nível" hidden></section>
     <section class="vista" id="vista-hoje" aria-label="Jornada de hoje" hidden></section>
     <section class="vista" id="vista-curso" aria-label="O curso"></section>
     <section class="vista" id="vista-aula" aria-label="Aula" hidden></section>
@@ -557,12 +560,12 @@ h2 { text-wrap: balance; }
   </div>
 </main>
 
-<script src="vendor/vexflow.js?v=202611111729"></script>
-<script src="partitura.js?v=202611111729"></script>
-<script src="vendor/supabase.js?v=202611111729"></script>
-<script src="config.js?v=202611111729"></script>
-<script src="dados.js?v=202611111729"></script>
-<script src="app.js?v=202611111729"></script>
+<script src="vendor/vexflow.js?v=202611121042"></script>
+<script src="partitura.js?v=202611121042"></script>
+<script src="vendor/supabase.js?v=202611121042"></script>
+<script src="config.js?v=202611121042"></script>
+<script src="dados.js?v=202611121042"></script>
+<script src="app.js?v=202611121042"></script>
 
 </body>
 </html>
