@@ -234,27 +234,56 @@
       return this.ctx;
     },
     // amostras reais de piano (Salamander Grand, Yamaha C5): uma a cada terça menor, as outras notas por transposição
-    amostras: new Map(), carregando: false,
+    amostras: new Map(), bytes: new Map(), carregando: false, falhas: 0,
     get temPiano() { return this.amostras.size >= 30; },
-    carregarPiano() {
-      if (this.carregando || this.temPiano || !this.ctx || location.protocol === 'file:') return;
-      this.carregando = true;
-      const nomes = ['A0', 'C1', 'Ds1', 'Fs1', 'A1', 'C2', 'Ds2', 'Fs2', 'A2', 'C3', 'Ds3', 'Fs3', 'A3', 'C4', 'Ds4', 'Fs4', 'A4', 'C5', 'Ds5', 'Fs5', 'A5', 'C6', 'Ds6', 'Fs6', 'A6', 'C7', 'Ds7', 'Fs7', 'A7', 'C8'];
-      // as mais usadas primeiro (região central), depois o resto
-      const ordem = nomes.map((n, i) => ({ n, m: 21 + i * 3 })).sort((a, b) => Math.abs(a.m - 64) - Math.abs(b.m - 64));
+    get podeCarregar() { return location.protocol !== 'file:'; },
+    NOMES_AMOSTRAS: ['A0', 'C1', 'Ds1', 'Fs1', 'A1', 'C2', 'Ds2', 'Fs2', 'A2', 'C3', 'Ds3', 'Fs3', 'A3', 'C4', 'Ds4', 'Fs4', 'A4', 'C5', 'Ds5', 'Fs5', 'A5', 'C6', 'Ds6', 'Fs6', 'A6', 'C7', 'Ds7', 'Fs7', 'A7', 'C8'],
+    // as mais usadas primeiro (região central), depois o resto
+    get ordemAmostras() { return this.NOMES_AMOSTRAS.map((n, i) => ({ n, m: 21 + i * 3 })).sort((a, b) => Math.abs(a.m - 64) - Math.abs(b.m - 64)); },
+    // baixa os arquivos assim que a página abre (antes de qualquer toque), para o piano já estar pronto no primeiro "Ouvir"
+    prebuscar() {
+      if (this.prebuscando || !this.podeCarregar) return;
+      this.prebuscando = true;
       (async () => {
-        for (const { n, m } of ordem) {
-          if (this.amostras.has(m)) continue;
+        for (const { n, m } of this.ordemAmostras) {
+          if (this.bytes.has(m) || this.amostras.has(m)) continue;
           try {
             const r = await fetch('audio/piano/' + n + '.mp3');
             if (!r.ok) throw new Error(r.status);
-            this.amostras.set(m, await this.ctx.decodeAudioData(await r.arrayBuffer()));
-          } catch (e) { /* sem essa amostra: as vizinhas cobrem por transposição */ }
+            this.bytes.set(m, await r.arrayBuffer());
+          } catch (e) { this.falhas++; }
         }
-        this.carregando = false;
-        if (this.amostras.size) document.dispatchEvent(new CustomEvent('piano-carregado'));
+        this.prebuscando = false;
+        if (this.ctx) this.carregarPiano();
       })();
     },
+    carregarPiano() {
+      if (this.carregando || this.temPiano || !this.ctx || !this.podeCarregar) return;
+      this.carregando = true;
+      (async () => {
+        for (const { n, m } of this.ordemAmostras) {
+          if (this.amostras.has(m)) continue;
+          try {
+            let b = this.bytes.get(m);
+            if (!b) { const r = await fetch('audio/piano/' + n + '.mp3'); if (!r.ok) throw new Error(r.status); b = await r.arrayBuffer(); }
+            this.amostras.set(m, await this.ctx.decodeAudioData(b.slice(0)));
+            this.bytes.delete(m);
+          } catch (e) { this.falhas++; /* sem essa amostra: as vizinhas cobrem por transposição */ }
+        }
+        this.carregando = false;
+        document.dispatchEvent(new CustomEvent('piano-carregado'));
+      })();
+    },
+    // promessa que resolve quando o piano gravado está pronto (ou depois de `ms`, para não travar quem está sem rede)
+    pronto(ms = 2500) {
+      if (this.temPiano || !this.podeCarregar || (!this.carregando && !this.prebuscando && this.ctx)) return Promise.resolve(this.temPiano);
+      return new Promise(res => {
+        let fim = false; const ok = () => { if (fim) return; fim = true; document.removeEventListener('piano-carregado', ok); res(this.temPiano); };
+        document.addEventListener('piano-carregado', ok);
+        setTimeout(ok, ms);
+      });
+    },
+    get descricao() { return (this.temPiano || this.bytes.size >= 30) ? 'piano gravado' : this.amostras.size ? `piano gravado (${this.amostras.size} de 30 amostras)` : (this.carregando || this.prebuscando) ? 'carregando o piano…' : 'sintetizado'; },
     amostraPara(m) {
       let melhor = null, dist = Infinity;
       for (const k of this.amostras.keys()) { const d = Math.abs(k - m); if (d < dist) { dist = d; melhor = k; } }
@@ -268,7 +297,7 @@
     confirmar() {
       // três notas da posição de Chopin, para a pessoa ouvir que o som está ligado
       const ctx = this.iniciar(); if (!ctx) return;
-      [64, 68, 71].forEach((m, i) => this.nota(m, ctx.currentTime + 0.05 + i * 0.18, 0.5, 0.6));
+      this.pronto(1500).then(() => [64, 68, 71].forEach((m, i) => this.nota(m, ctx.currentTime + 0.05 + i * 0.18, 0.5, 0.6)));
     },
     nota(m, quando, dur, v = 0.7) {
       const ctx = this.ctx; if (!ctx) return;
@@ -1017,6 +1046,13 @@
     }
     tocar() {
       const ctx = Som.iniciar(); if (!ctx) return;
+      // o piano gravado ainda está chegando: espera um pouco (no máximo 2,5 s) para a peça não começar com o som sintetizado
+      if (!Som.temPiano && Som.podeCarregar && (Som.carregando || Som.prebuscando) && !this.aguardandoPiano) {
+        this.aguardandoPiano = true;
+        Som.pronto(2500).then(() => { this.aguardandoPiano = false; if (!this.tocando && this.raiz.isConnected) this.tocar(); });
+        return;
+      }
+      this.aguardandoPiano = false;
       if (this.modo === 'praticar' && (this.terminou || this.idx >= this.eventos.length)) this.reiniciar();
       if (this.modo === 'ouvir' && this.batida >= this.fim - 0.01) this.reiniciar();
       this.terminou = false;
@@ -1819,6 +1855,7 @@
           <label class="chk" title="Explica, demonstra, entra em Praticar e avança sozinho"><input type="checkbox" id="fluxo-chk" ${p.fluxo !== false ? 'checked' : ''}> Automático</label>
           <label class="chk" title="Avisos falados do treinador a cada erro (o texto continua aparecendo)"><input type="checkbox" id="voz-chk" ${p.treinadorVoz !== false ? 'checked' : ''}> Voz do treinador</label>
           <label class="chk" title="Enquanto você toca, esconde o resto da tela e deixa só o teclado, as mãos e o treinador"><input type="checkbox" id="foco-chk" ${p.foco !== false ? 'checked' : ''}> Foco ao tocar</label>
+          <span class="som-estado" title="Amostras do Salamander Grand Piano (Yamaha C5). Se aparecer “sintetizado”, recarregue a página com internet.">Som: ${Som.descricao}</span>
         </div>
         <div class="palco"><canvas aria-label="Teclado animado: as notas descem até as teclas que você deve apertar"></canvas></div>
         <div class="treinador" id="treinador"><div class="tr-msg" id="tr-msg" aria-live="assertive">O treinador avisa na hora: tecla errada, nota atrasada ou apressada.</div><div class="tr-barras" id="tr-barras" aria-label="Últimas notas: altura da barra = quanto o tempo variou"></div></div>
@@ -3493,4 +3530,6 @@
   Nuvem.iniciar();
   rota();
   AtivarSom.conferir();
+  document.addEventListener('piano-carregado', () => document.querySelectorAll('.som-estado').forEach(e => { e.textContent = 'Som: ' + Som.descricao; }));
+  setTimeout(() => Som.prebuscar(), 800);
 })();
