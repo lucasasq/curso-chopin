@@ -1,7 +1,7 @@
 /* Curso Chopin — service worker: deixa o curso abrir sem internet depois da primeira visita.
-   Rede primeiro (para pegar atualizações); se faltar rede, usa a cópia guardada. Versão: 202611121042 */
-const CACHE = 'curso-chopin-202611121042';
-const ESSENCIAIS = ['./', 'index.html', 'app.js?v=202611121042', 'dados.js?v=202611121042', 'config.js?v=202611121042', 'partitura.js?v=202611121042', 'vendor/vexflow.js?v=202611121042', 'vendor/supabase.js?v=202611121042', 'manifest.webmanifest'];
+   Rede primeiro (para pegar atualizações); se faltar rede, usa a cópia guardada. Versão: 202611121109 */
+const CACHE = 'curso-chopin-202611121109';
+const ESSENCIAIS = ['./', 'index.html', 'app.js?v=202611121109', 'dados.js?v=202611121109', 'config.js?v=202611121109', 'partitura.js?v=202611121109', 'vendor/vexflow.js?v=202611121109', 'vendor/supabase.js?v=202611121109', 'manifest.webmanifest'];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ESSENCIAIS).catch(() => {})).then(() => self.skipWaiting()));
 });

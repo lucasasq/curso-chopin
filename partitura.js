@@ -98,6 +98,8 @@
     const bemol = (aula.tom != null && aula.tom < 0) || notas.some(n => /♭/.test(n.n || ''));
     const tonal = tonalidadeDe(aula.tom);
     const porMao = Object.fromEntries(maos.map(h => [h, eventosDaMao(notas, h, cb, c0, c1)]));
+    const dinamica = (aula.metricas || []).includes('dinamica');
+    const ultimaDin = { D: null, E: null };
 
     const largura = Math.max(300, el.clientWidth || 600);
     const porLinha = largura < 440 ? 1 : largura < 640 ? 2 : largura < 900 ? 3 : 4;
@@ -179,6 +181,16 @@
                 }
               });
               if (pt.p) V.Dot.buildAndAttach([nota], { all: true });
+              if (dinamica && pi === 0) {
+                const v = Math.max(...it.notas.map(nn => nn.v));
+                const rot = v < 0.3 ? 'pp' : v < 0.45 ? 'p' : v < 0.6 ? 'mp' : v < 0.72 ? 'mf' : v < 0.88 ? 'f' : 'ff';
+                if (rot !== ultimaDin[h]) {
+                  ultimaDin[h] = rot;
+                  const an = new V.Annotation(rot).setFont('Georgia, serif', 12, 'bold italic');
+                  an.setVerticalJustification(V.Annotation.VerticalJustify.BOTTOM);
+                  nota.addModifier(an, 0);
+                }
+              }
               nota.setStyle({ fillStyle: h === 'D' ? corD : corE, strokeStyle: h === 'D' ? corD : corE });
               tickables.push(nota);
               marcas.push({ t: it.t, fim: it.t + it.d, nota, h, atual: false });

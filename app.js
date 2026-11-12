@@ -18,6 +18,9 @@
   const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
   const agoraS = () => performance.now() / 1000;
   const rotuloNota = n => (n.m % 12 === 0 && n.n === 'Dó') ? 'Dó' + (Math.floor(n.m / 12) - 1) : n.n;
+  const DINAMICAS = [[0.3, 'pp', 'bem suave'], [0.45, 'p', 'suave'], [0.6, 'mp', 'meio suave'], [0.72, 'mf', 'meio forte'], [0.88, 'f', 'forte'], [1.01, 'ff', 'bem forte']];
+  const dinamicaDe = v => DINAMICAS.find(d => v < d[0]) || DINAMICAS[DINAMICAS.length - 1];
+  const temDinamica = aula => (aula.metricas || []).includes('dinamica');
 
   /* ------------------------------------------------------------ armazenamento */
   const store = {
@@ -739,6 +742,7 @@
         let num = 0, dx = 0, da = 0;
         for (let i = 0; i < ex.length; i++) { num += (ex[i] - mx) * (ac[i] - ma); dx += (ex[i] - mx) ** 2; da += (ac[i] - ma) ** 2; }
         out.dinamica = dx && da ? Math.max(0, Math.round(100 * num / Math.sqrt(dx * da))) : 0;
+        out.linhaDin = pares.map((x, i) => ({ i, nome: rotuloNota(x), pedido: x.v, tocado: x.vel / 127, rot: dinamicaDe(x.v)[1] }));
       }
     }
     // equilíbrio: a mão direita (melodia) mais forte que a esquerda, em %
@@ -1062,6 +1066,7 @@
           const n = ev.notas.find(x => x.m === m);
           const rec = { ...n, on: ts, off: null, vel: v };
           this.recs.push(rec); this.abertos.set(m, rec);
+          if (temDinamica(this.aula)) this.avaliarForca(n, v);
           this.flash.set(m, { ate: performance.now() + 350, cor: css('--ok') });
           if (!ev.pendentes.size) { ev.ok = true; this.avaliarTempo(ev, this.eventos[this.idx - 1]); this.idx++; this.atualizarStatus(); }
         } else if (ev.feitos.has(m)) {
@@ -1094,6 +1099,13 @@
       else { this.bons++; if (this.bons === 8) this.avisar('bem', {}); }
       this.desenharTreinador(dev);
     }
+    avaliarForca(n, vel) {
+      // compara com o pedido: a nota pede forte e saiu fraca (ou o contrário)
+      const alvo = n.v, tocado = vel / 127;
+      const d = dinamicaDe(alvo);
+      if (alvo >= 0.7 && tocado < alvo - 0.25) this.avisar('forte', { d });
+      else if (alvo <= 0.45 && tocado > alvo + 0.25) this.avisar('suave', { d });
+    }
     avisar(tipo, info) {
       const el = $('#tr-msg', this.raiz); if (!el) return;
       let txt = '', ids = [];
@@ -1110,6 +1122,8 @@
       } else if (tipo === 'atrasou') { txt = '<b>Atrasou.</b> Essa nota veio tarde: mantenha o pulso, sem parar para procurar a tecla.'; ids = ['coach-atrasou']; }
       else if (tipo === 'apressou') { txt = '<b>Apressou.</b> Essa nota veio cedo: espere o tempo inteiro da anterior.'; ids = ['coach-apressou']; }
       else if (tipo === 'bem') { txt = '<b>Muito bem.</b> Oito notas seguidas no tempo.'; ids = ['coach-bem']; }
+      else if (tipo === 'forte') { txt = `<b>Mais forte.</b> Essa nota pede <i>${info.d[1]}</i> (${info.d[2]}): mais peso do braço, sem apertar.`; ids = ['coach-forte']; }
+      else if (tipo === 'suave') { txt = `<b>Mais suave.</b> Essa nota pede <i>${info.d[1]}</i> (${info.d[2]}): o dedo quase só pousa na tecla.`; ids = ['coach-suave']; }
       el.innerHTML = txt; el.dataset.tipo = tipo;
       el.classList.remove('pisca'); void el.offsetWidth; el.classList.add('pisca');
       // voz: no máximo um aviso a cada 2,5 s
@@ -1186,7 +1200,8 @@
       if (this.terminou && this.resultado) { st.innerHTML = this.resultado.r.passou ? '<b>Passou.</b> Veja o relatório abaixo.' : 'Exercício terminado. Veja o relatório abaixo.'; return; }
       const ev = this.eventos[this.idx];
       if (!ev) { st.textContent = ''; return; }
-      const alvo = this.aula.leitura ? '<b>a nota marcada na partitura</b>' : ev.notas.map(n => `<b>${esc(rotuloNota(n))}</b> (${n.h === 'D' ? 'MD' : 'ME'}${n.f ? ' ' + n.f : ''})`).join(' + ');
+      const alvo = this.aula.leitura ? '<b>a nota marcada na partitura</b>' : ev.notas.map(n => `<b>${esc(rotuloNota(n))}</b> (${n.h === 'D' ? 'MD' : 'ME'}${n.f ? ' ' + n.f : ''})`).join(' + ')
+        + (temDinamica(this.aula) ? ` · <b style="font-style:italic">${dinamicaDe(ev.notas[0].v)[1]}</b> ${dinamicaDe(ev.notas[0].v)[2]}` : '');
       const conectado = Midi.estado === 'conectado';
       st.innerHTML = (this.tocando ? 'Esperando: ' : 'Primeira nota: ') + alvo + (conectado ? '' : ' · <span class="suave">sem piano conectado: toque nas teclas da tela</span>')
         + '<br><span class="suave">No modo Praticar o site não toca as notas: o som vem do seu piano. Para ouvir a música, use Ouvir.</span>';
@@ -1233,11 +1248,13 @@
         const p = geo.pos.get(n.m); if (!p) continue;
         const fora = this.maos !== 'todas' && n.h !== this.maos;
         const cor = n.h === 'D' ? corD : corE;
-        const pad = p.preta ? 1 : p.w * 0.1;
+        const din = temDinamica(this.aula);
+        const padBase = p.preta ? 1 : p.w * 0.1;
+        const pad = din ? padBase + (p.w - 2 * padBase) * (1 - (0.35 + 0.65 * n.v)) / 2 : padBase; // com dinâmica, a largura mostra a força
         const x = p.x + pad, ww = p.w - pad * 2;
         const topo = Math.max(yt, -4), base = Math.min(yb, ky) - 1;
         if (base - topo < 1) continue;
-        ctx.globalAlpha = fora ? 0.18 : feitas.has(n) ? 0.35 : 0.5 + 0.5 * n.v;
+        ctx.globalAlpha = fora ? 0.18 : feitas.has(n) ? 0.35 : (din ? 0.9 : 0.5 + 0.5 * n.v);
         ctx.fillStyle = cor;
         ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x, topo, ww, base - topo, 5) : ctx.rect(x, topo, ww, base - topo); ctx.fill();
         if (evAtual && evAtual.notas.includes(n) && evAtual.pendentes.has(n.m)) {
@@ -1253,6 +1270,14 @@
           if (n.f && estado.prefs.nomes && base - topo > 40) {
             ctx.font = `600 ${clamp(ww * 0.3, 9, 12)}px ${css('--font-body')}`;
             ctx.fillText(rotuloNota(n), x + ww / 2, base - 28);
+          }
+          if (din && base - topo > 30) {
+            // rótulo de força no topo da nota, em itálico como na partitura
+            const d = dinamicaDe(n.v);
+            ctx.font = `italic 700 ${clamp(p.w * 0.5, 11, 15)}px Georgia, serif`;
+            ctx.fillStyle = '#ffffff'; ctx.globalAlpha = 0.95;
+            ctx.fillText(d[1], p.x + p.w / 2, Math.max(topo, 0) + 11);
+            ctx.globalAlpha = 1;
           }
         }
         ctx.globalAlpha = 1;
@@ -1280,6 +1305,10 @@
         const item = (cor, txt) => { ctx.fillStyle = textoPalco; ctx.fillText(txt, lx, 14); lx -= ctx.measureText(txt).width + 8; ctx.fillStyle = cor; ctx.beginPath(); ctx.arc(lx - 4, 14, 5, 0, Math.PI * 2); ctx.fill(); lx -= 22; };
         if (temE) item(corE, 'ESQUERDA');
         if (temD) item(corD, 'DIREITA');
+      }
+      if (temDinamica(this.aula)) {
+        ctx.font = `600 11px ${css('--font-mono')}`; ctx.textAlign = 'right'; ctx.textBaseline = 'middle'; ctx.fillStyle = textoPalco;
+        ctx.fillText('FORÇA: pp p mp mf f ff · nota larga = forte, estreita = suave', w - 10, 32);
       }
       // etapa de uma mão só: aviso grande e a outra mão apagada
       const soMao = this.maos !== 'todas' ? this.maos : (temD && !temE ? 'D' : temE && !temD ? 'E' : null);
@@ -1777,6 +1806,9 @@
     $('#resultado').innerHTML = `<div class="resultado" data-passou="${r.passou}">
       <div class="veredito"><span class="selo">${r.passou ? 'Passou' : 'Ainda não'}</span><h3>${r.passou ? (r.parcial ? 'Trecho dentro da meta. Para concluir a aula, toque do início ao fim.' : (a.textoPassou || 'Aula concluída. Pode seguir para a próxima.')) : 'Falta: ' + esc(r.faltas.join(' · '))}</h3></div>
       <div class="metricas">${met.join('')}</div>
+      ${r.linhaDin ? `<div class="linha-tempo"><span class="rotulo">Dinâmica · nota a nota (barra clara = força pedida, barra cheia = o que você tocou)</span>
+        <div class="din-grade">${r.linhaDin.map(x => `<div class="din-col" title="Nota ${x.i + 1}: ${esc(x.nome)} · pedido ${x.rot} · tocado ${Math.round(x.tocado * 127)}"><i class="pedido" style="height:${Math.round(100 * x.pedido)}%"></i><i class="tocado" style="height:${Math.round(100 * Math.min(1, x.tocado))}%"></i><span>${x.rot}</span></div>`).join('')}</div>
+        <p class="aviso">A meta é a forma da curva, não o volume absoluto: o que importa é o forte ficar acima do fraco na mesma proporção do desenho. Leia os rótulos p, mf, f nas notas que caem e na partitura.</p></div>` : ''}
       ${r.linha ? `<div class="linha-tempo"><span class="rotulo">Linha do tempo · nota a nota (barra para cima = atrasou, para baixo = apressou, vermelho = tecla errada)</span>
         <div class="lt-grade">${r.linha.map(x => { const dev = x.dev; const h = dev == null ? 0 : Math.max(-22, Math.min(22, 22 * Math.log2(dev))); const cls = x.erros ? 'erro' : dev == null ? 'neutro' : dev > 1.35 ? 'tarde' : dev < 0.72 ? 'cedo' : 'ok'; return `<div class="lt-col ${cls}" title="Nota ${x.i + 1}: ${esc(x.nome)}${dev != null ? ` · ${dev > 1 ? '+' : ''}${Math.round((dev - 1) * 100)}%` : ''}${x.erros ? ` · ${x.erros} erro(s)` : ''}"><i style="${h >= 0 ? `height:${h}px;bottom:50%` : `height:${-h}px;top:50%`}"></i><span>${x.i + 1}</span></div>`; }).join('')}</div>
         <p class="aviso">Regularidade mede se o intervalo entre cada nota e a anterior acompanhou o ritmo escrito. Tocar devagar não tira pontos; parar para procurar a tecla, sim.</p></div>` : ''}

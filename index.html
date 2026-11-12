@@ -270,6 +270,12 @@ body.foco .transporte::after { content: "Modo foco: a tela volta ao normal quand
 .tr-barras i { display: block; width: 7px; border-radius: 2px 2px 0 0; background: var(--ok); }
 .tr-barras i.tarde { background: var(--warn); } .tr-barras i.cedo { background: var(--lh); }
 .linha-tempo { display: grid; gap: 8px; }
+.din-grade { display: flex; gap: 3px; align-items: flex-end; height: 90px; border-bottom: 1px solid var(--line); padding: 0 4px 16px; overflow-x: auto; position: relative; }
+.din-col { position: relative; flex: 1 0 12px; min-width: 12px; max-width: 30px; height: 100%; display: flex; align-items: flex-end; justify-content: center; gap: 1px; }
+.din-col i { display: block; width: 45%; border-radius: 2px 2px 0 0; }
+.din-col i.pedido { background: var(--accent-soft); border: 1px solid var(--accent); }
+.din-col i.tocado { background: var(--rh); }
+.din-col span { position: absolute; left: 0; right: 0; bottom: -16px; text-align: center; font: italic 700 0.65rem Georgia, serif; color: var(--muted); }
 .lt-grade { display: flex; gap: 2px; align-items: stretch; height: 70px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); position: relative; overflow-x: auto; padding: 0 4px; }
 .lt-grade::before { content: ""; position: absolute; left: 0; right: 0; top: 50%; border-top: 1px dashed var(--muted); opacity: 0.5; }
 .lt-col { position: relative; flex: 1 0 10px; min-width: 10px; max-width: 28px; }
@@ -560,12 +566,12 @@ h2 { text-wrap: balance; }
   </div>
 </main>
 
-<script src="vendor/vexflow.js?v=202611121042"></script>
-<script src="partitura.js?v=202611121042"></script>
-<script src="vendor/supabase.js?v=202611121042"></script>
-<script src="config.js?v=202611121042"></script>
-<script src="dados.js?v=202611121042"></script>
-<script src="app.js?v=202611121042"></script>
+<script src="vendor/vexflow.js?v=202611121109"></script>
+<script src="partitura.js?v=202611121109"></script>
+<script src="vendor/supabase.js?v=202611121109"></script>
+<script src="config.js?v=202611121109"></script>
+<script src="dados.js?v=202611121109"></script>
+<script src="app.js?v=202611121109"></script>
 
 </body>
 </html>
