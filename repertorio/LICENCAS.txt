@@ -111,3 +111,5 @@ atribuição ao Mutopia Project e aos seus editores; as CC BY-SA exigem que deri
 - chopin-balada-4.mid: Chopin · Balada nº 4 em Fá menor, Op. 52
     origem: https://www.mutopiaproject.org/ftp/ChopinFF/O52/ballade-4/
     licença: Domínio público
+
+Som do piano: Salamander Grand Piano (Yamaha C5), de Alexander Holm, CC BY 3.0 — ver site/audio/piano/LICENCA.txt.

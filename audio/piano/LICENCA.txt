@@ -1,0 +1,3 @@
+Amostras de piano: Salamander Grand Piano (Yamaha C5), de Alexander Holm.
+Licença: Creative Commons Attribution 3.0 (CC BY 3.0).
+Fonte: https://archive.org/details/SalamanderGrandPianoV3 — versão mp3 reduzida (uma amostra a cada terça menor) distribuída pelo projeto Tone.js (https://tonejs.github.io/audio/salamander/).

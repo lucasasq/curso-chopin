@@ -34,9 +34,10 @@
     musicas: store.get('musicas', []),
     jornada: store.get('jornada', null),
     niveisVistos: store.get('niveisVistos', []),
-    provas: store.get('provas', {})
+    provas: store.get('provas', {}),
+    ouvido: store.get('ouvido', null)
   };
-  const salvar = () => { store.set('sessoes', estado.sessoes); store.set('status', estado.status); store.set('prefs', estado.prefs); store.set('musicas', estado.musicas); store.set('jornada', estado.jornada); store.set('niveisVistos', estado.niveisVistos); store.set('provas', estado.provas); };
+  const salvar = () => { store.set('sessoes', estado.sessoes); store.set('status', estado.status); store.set('prefs', estado.prefs); store.set('musicas', estado.musicas); store.set('jornada', estado.jornada); store.set('niveisVistos', estado.niveisVistos); store.set('provas', estado.provas); store.set('ouvido', estado.ouvido); };
   const hojeStr = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
   function statusAula(id) {
@@ -229,7 +230,35 @@
       }
       if (this.ctx.state !== 'running') this.ctx.resume().catch(() => {});
       if (!this.ligado) { this.ligado = true; document.dispatchEvent(new CustomEvent('som-ligado')); }
+      this.carregarPiano();
       return this.ctx;
+    },
+    // amostras reais de piano (Salamander Grand, Yamaha C5): uma a cada terça menor, as outras notas por transposição
+    amostras: new Map(), carregando: false,
+    get temPiano() { return this.amostras.size >= 30; },
+    carregarPiano() {
+      if (this.carregando || this.temPiano || !this.ctx || location.protocol === 'file:') return;
+      this.carregando = true;
+      const nomes = ['A0', 'C1', 'Ds1', 'Fs1', 'A1', 'C2', 'Ds2', 'Fs2', 'A2', 'C3', 'Ds3', 'Fs3', 'A3', 'C4', 'Ds4', 'Fs4', 'A4', 'C5', 'Ds5', 'Fs5', 'A5', 'C6', 'Ds6', 'Fs6', 'A6', 'C7', 'Ds7', 'Fs7', 'A7', 'C8'];
+      // as mais usadas primeiro (região central), depois o resto
+      const ordem = nomes.map((n, i) => ({ n, m: 21 + i * 3 })).sort((a, b) => Math.abs(a.m - 64) - Math.abs(b.m - 64));
+      (async () => {
+        for (const { n, m } of ordem) {
+          if (this.amostras.has(m)) continue;
+          try {
+            const r = await fetch('audio/piano/' + n + '.mp3');
+            if (!r.ok) throw new Error(r.status);
+            this.amostras.set(m, await this.ctx.decodeAudioData(await r.arrayBuffer()));
+          } catch (e) { /* sem essa amostra: as vizinhas cobrem por transposição */ }
+        }
+        this.carregando = false;
+        if (this.amostras.size) document.dispatchEvent(new CustomEvent('piano-carregado'));
+      })();
+    },
+    amostraPara(m) {
+      let melhor = null, dist = Infinity;
+      for (const k of this.amostras.keys()) { const d = Math.abs(k - m); if (d < dist) { dist = d; melhor = k; } }
+      return melhor === null || dist > 6 ? null : melhor;
     },
     get precisaToque() {
       // iPhone/iPad (e Macs com tela de toque): o som só sai depois de um toque do usuário
@@ -243,6 +272,22 @@
     },
     nota(m, quando, dur, v = 0.7) {
       const ctx = this.ctx; if (!ctx) return;
+      const base = this.amostraPara(m);
+      if (base !== null) {
+        // piano gravado: a amostra mais próxima, transposta; a força muda o volume e o brilho, como numa tecla de verdade
+        const src = ctx.createBufferSource(); src.buffer = this.amostras.get(base);
+        src.playbackRate.value = Math.pow(2, (m - base) / 12);
+        const g = ctx.createGain(); const filtro = ctx.createBiquadFilter();
+        filtro.type = 'lowpass'; filtro.frequency.value = 1200 + Math.pow(v, 1.5) * 14000;
+        const vol = 0.12 + 0.88 * Math.pow(v, 1.3);
+        const fim = quando + Math.max(dur, 0.12);
+        g.gain.setValueAtTime(vol, quando);
+        g.gain.setValueAtTime(vol, fim);
+        g.gain.setTargetAtTime(0.0001, fim, 0.09); // abafador: a nota some quando a tecla sobe
+        src.connect(filtro); filtro.connect(g); g.connect(this.mestre);
+        src.start(quando); src.stop(fim + 0.6);
+        return;
+      }
       const f = 440 * Math.pow(2, (m - 69) / 12);
       const g = ctx.createGain();
       const filtro = ctx.createBiquadFilter();
@@ -508,7 +553,8 @@
       barra.innerHTML = `<div class="fluxo-txt"><b>${titulo}</b> <span id="fluxo-quando">depois do feedback</span></div>
         <div class="linha-botoes">
           <button class="btn primario" type="button" data-fluxo="agora">${passou ? 'Agora →' : 'Tentar agora'}</button>
-          ${passou ? '<button class="btn" type="button" data-fluxo="repetir">Repetir esta</button>' : '<button class="btn" type="button" data-fluxo="ouvir">Ouvir o trecho</button>'}
+          <button class="btn" type="button" data-fluxo="repetir">↺ Repetir com a aula guiada</button>
+          ${passou ? '' : '<button class="btn" type="button" data-fluxo="ouvir">Ouvir o trecho</button>'}
           <button class="btn" type="button" data-fluxo="parar">Parar o automático</button>
         </div>`;
       caixa.prepend(barra);
@@ -551,7 +597,7 @@
       <details><summary>Ler o texto</summary><p>${esc(texto)}</p></details>
     </div>`;
   }
-  const TEXTOS_NARR = new Map([['intro', C.intro], ...C.modulos.filter(m => m.narracao).map(m => ['modulo-' + m.n, m.narracao]), ...C.aulas.map(a => ['aula-' + a.id, a.narracao])]);
+  const TEXTOS_NARR = new Map([['intro', C.intro], ...C.modulos.filter(m => m.narracao).map(m => ['modulo-' + m.n, m.narracao]), ...C.aulas.map(a => ['aula-' + a.id, a.narracao]), ...(C.ouvido ? [['ouvido', C.ouvido.narracao], ...Object.entries(C.ouvido.blocos).map(([k, b]) => ['ouvido-' + k, b.narracao])] : [])]);
   document.addEventListener('click', e => {
     const b = e.target.closest('[data-narr]');
     if (!b) return;
@@ -1384,6 +1430,7 @@
     else if (h.startsWith('aula-')) { aulaId = h.slice(5); vista = AULAS.has(aulaId) ? 'aula' : 'curso'; }
     else if (h === 'progresso') vista = 'progresso';
     else if (h === 'musicas' || h.startsWith('musica-')) vista = 'musicas';
+    else if (h === 'ouvido' || h.startsWith('ouvido-')) vista = 'ouvido';
     Narr.parar(); Guia.parar(); Fluxo.parar();
     Jornada.ativa = vista === 'hoje';
     if (vista === 'aula' && Jornada.bloqueado()) { vista = 'hoje'; }
@@ -1399,6 +1446,7 @@
     if (vista === 'aula') renderAula(aulaId);
     if (vista === 'progresso') renderProgresso();
     if (vista === 'musicas') { if (h.startsWith('musica-')) renderMusica(h.slice(7)); else renderMusicas(); }
+    if (vista === 'ouvido') renderOuvido(h.startsWith('ouvido-') ? h.slice(7) : null);
     window.scrollTo(0, 0);
     if (vista !== 'curso') AtivarSom.conferir();
   }
@@ -1803,6 +1851,13 @@
       if (chk) chk.addEventListener('change', e => { p.partitura = e.target.checked; salvar(); partEl.hidden = !p.partitura; if (p.partitura) { larguraAnt = 0; pl.desenharPartitura(); } });
     }
     raiz.addEventListener('resultado', ev => { mostrarResultado(a, ev.detail); if (opts.aoResultado) opts.aoResultado(ev.detail); Fluxo.resultado(a, pl, ev.detail.r, opts); });
+    // repetir depois do relatório: com a aula guiada (explicação, demonstração e a sua vez) ou direto na prática
+    $('#resultado').addEventListener('click', e => {
+      const b = e.target.closest('[data-res]'); if (!b || playerAtual !== pl) return;
+      Fluxo.parar(); pl.reiniciar(); $('#resultado').innerHTML = '';
+      if (b.dataset.res === 'guiada') { Fluxo.cancelado = false; Fluxo.pratica(a, pl, opts.aoPassar); }
+      else { const bPrat = $('[data-modo="praticar"]', pl.raiz); if (bPrat) bPrat.click(); rolar($('.palco', pl.raiz)); }
+    });
     if (opts.auto !== false && a.tipo === 'pratica') Fluxo.quandoPuder(() => Fluxo.pratica(a, pl, opts.aoPassar));
     return pl;
   }
@@ -1837,6 +1892,7 @@
         <p class="aviso">Regularidade mede se o intervalo entre cada nota e a anterior acompanhou o ritmo escrito. Tocar devagar não tira pontos; parar para procurar a tecla, sim.</p></div>` : ''}
       ${linhas ? `<div class="dedos"><span class="rotulo">Força média por dedo (0 a 127)</span>${linhas}</div>` : ''}
       <div><span class="rotulo">O que fazer agora</span><ul class="dicas">${ds.map(d => `<li>${esc(d)}</li>`).join('')}</ul></div>
+      <div class="linha-botoes"><button class="btn" type="button" data-res="guiada">↺ Repetir com a aula guiada</button><button class="btn" type="button" data-res="praticar">↺ Praticar de novo</button></div>
       <p class="aviso">${Nuvem.logado ? 'Salvo neste aparelho e enviado para a nuvem.' : Nuvem.estado === 'sem-config' ? 'Salvo neste aparelho.' : 'Salvo só neste aparelho. Entre na aba Progresso para guardar também na nuvem.'}</p>
     </div>`;
     $('#resultado').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -2256,7 +2312,7 @@
     const pianos = midi.fontes.filter(f => (f.programa ?? 0) < 8).sort((a, b) => b.notas.length - a.notas.length);
     const altos = f => f.notas.filter(n => n[2] >= 60).length;
     // um piano que sozinho cobre as duas mãos: divide no Dó central
-    for (const f of pianos) if (f.notas.length >= 24 && altos(f) >= 8 && f.notas.length - altos(f) >= 8 && !(pianos.length > 1 && pianos.some(g => g !== f && media(g) < 60 && media(f) >= 60))) return { ...base, md: f.chave + '|alto', me: f.chave + '|baixo' };
+    for (const f of pianos) if (f.notas.length >= 24 && altos(f) >= 8 && f.notas.length - altos(f) >= 8 && !pianos.some(g => g !== f && g.notas.length >= 8)) return { ...base, md: f.chave + '|alto', me: f.chave + '|baixo' };
     // piano em duas trilhas (uma por mão)
     const pAlto = pianos.find(f => media(f) >= 60 && f.notas.length >= 8), pBaixo = pianos.find(f => media(f) < 60 && f.notas.length >= 8);
     if (pAlto && pBaixo) return { ...base, md: pAlto.chave, me: pBaixo.chave };
@@ -2391,11 +2447,18 @@
   };
 
   const musicaDaPeca = pecaId => estado.musicas.find(m => m.biblioteca === pecaId && !m.removida);
+  // versões antigas dividiam uma trilha só no Dó central mesmo havendo outra trilha para a outra mão
+  function corrigirConfig(m) {
+    const c = m && m.config; if (!c || !c.md || !c.me || !c.md.includes('|')) return;
+    if (c.md.split('|')[0] !== c.me.split('|')[0]) return;
+    const novo = configPadrao(m.midi);
+    if (novo.md !== c.md || novo.me !== c.me) { c.md = novo.md; c.me = novo.me; cachePlanos.clear(); salvarMusica(m); }
+  }
   async function abrirPeca(peca) {
-    let m = musicaDaPeca(peca.id); if (m) return m;
+    let m = musicaDaPeca(peca.id); if (m) { corrigirConfig(m); return m; }
     const idFixo = 'b' + peca.id.replace(/[^a-z0-9]/gi, '');
     const antiga = estado.musicas.find(x => x.id === idFixo);
-    if (antiga) { antiga.removida = false; antiga.biblioteca = peca.id; salvarMusica(antiga); return antiga; }
+    if (antiga) { antiga.removida = false; antiga.biblioteca = peca.id; salvarMusica(antiga); corrigirConfig(antiga); return antiga; }
     const resp = await fetch('repertorio/' + peca.arquivo, { cache: 'force-cache' });
     if (!resp.ok) throw new Error('arquivo ' + resp.status);
     const midi = lerMidi(await resp.arrayBuffer(), peca.arquivo);
@@ -2547,7 +2610,7 @@
   const etapaEscolhida = new Map();
   function renderMusica(id) {
     const el = $('#vista-musicas');
-    const m = acharMusica(id);
+    const m = acharMusica(id); if (m && m.biblioteca) corrigirConfig(m);
     if (!m) { el.innerHTML = `<div style="display:grid;gap:16px"><h1>Música não encontrada</h1><p class="suave">Ela pode ter sido removida, ou ainda não chegou da nuvem neste aparelho.</p><a class="btn" href="#musicas">Ver suas músicas</a></div>`; return; }
     const { pl, feitas, total, prox } = progressoMusica(m);
     if (!pl.etapas.length) { el.innerHTML = `<div style="display:grid;gap:16px"><h1>${esc(m.titulo)}</h1><p class="suave">Nenhuma nota nas mãos escolhidas.</p><button class="btn" id="ajustar">Ajustar mãos e partes</button><div id="config-musica"></div></div>`; $('#ajustar').onclick = () => formMusica($('#config-musica'), m, s => { salvarMusica(s); renderMusica(id); }, () => {}); return; }
@@ -2605,7 +2668,7 @@
     ativa: false,
     get hoje() { const j = estado.jornada; return j && j.dia === hojeStr() ? j : null; },
     garantir() { if (!this.hoje) { estado.jornada = { dia: hojeStr(), passo: 0, feitos: {} }; salvar(); } return estado.jornada; },
-    minutosHoje() { return estado.sessoes.filter(s => s.dia === hojeStr() && (!s.aula.startsWith('m:') || s.jornada)).reduce((a, s) => a + (s.minutos || 0), 0); },
+    minutosHoje() { return estado.sessoes.filter(s => s.dia === hojeStr() && !s.aula.startsWith('ouvido:') && (!s.aula.startsWith('m:') || s.jornada)).reduce((a, s) => a + (s.minutos || 0), 0); },
     bloqueado() { return this.minutosHoje() >= LIMITE_MIN; },
     ehTecnica(a) { return a.tipo === 'pratica' && [1, 2, 8, 9, 12].includes(a.modulo) && a.id !== '1-1'; },
     ultimaSessao(id) { let t = ''; estado.sessoes.forEach(s => { if (s.aula === id && s.quando > t) t = s.quando; }); return t; },
@@ -2692,7 +2755,7 @@
         <div class="hoje-fim">
           <h1>Treino de hoje completo.</h1>
           <p class="texto">Você fez ${Math.round(min)} minutos. Chopin não deixava os alunos passarem do ponto: o curso fecha até amanhã. Se quiser continuar ao piano, toque as músicas da sua lista, como treino à parte.</p>
-          <div class="linha-botoes"><a class="btn primario" href="#musicas">Tocar músicas</a><a class="btn" href="#progresso">Ver progresso</a></div>
+          <div class="linha-botoes"><a class="btn primario" href="#ouvido">Treino de ouvido (à parte, 12 min)</a><a class="btn" href="#musicas">Tocar músicas</a><a class="btn" href="#progresso">Ver progresso</a></div>
         </div></div>`;
       return;
     }
@@ -2706,6 +2769,7 @@
           <div class="linha-botoes">
             ${prox ? `<button class="btn primario" type="button" id="hoje-proxima">Próxima aula: ${idTexto(prox)} ${esc(AULAS.get(prox).titulo)} → ${Fluxo.ligado() ? '<span class="mono" id="hoje-proxima-seg">8</span>' : ''}</button>` : ''}
             ${plano.map((p, i) => `<button class="btn" type="button" data-repetir="${i}">Repetir ${esc(p.titulo.toLowerCase())}</button>`).join('')}
+            <a class="btn" href="#ouvido">Treino de ouvido (à parte)</a>
             <a class="btn" href="#musicas">Tocar músicas</a>
           </div>
         </div></div>`;
@@ -2845,8 +2909,342 @@
     });
   }
 
+  /* ------------------------------------------------------------ treino de ouvido: rotina diária à parte dos 45 minutos */
+  const OUV = C.ouvido || null;
+  const NOME_INTERVALO = { 1: 'segunda menor', 2: 'segunda maior', 3: 'terça menor', 4: 'terça maior', 5: 'quarta justa', 6: 'trítono', 7: 'quinta justa', 8: 'sexta menor', 9: 'sexta maior', 10: 'sétima menor', 11: 'sétima maior', 12: 'oitava' };
+  const Ouvido = {
+    get dados() { if (!estado.ouvido || typeof estado.ouvido !== 'object') estado.ouvido = { nivel: 1, dias: {}, pecas: {}, peca: null }; return estado.ouvido; },
+    get nivel() { return clamp(this.dados.nivel || 1, 1, 5); },
+    hoje() { const d = this.dados; return d.dias[hojeStr()] || (d.dias[hojeStr()] = {}); },
+    feito(bloco) { return !!this.hoje()[bloco]; },
+    registrar(bloco, r) {
+      this.hoje()[bloco] = Object.assign({ quando: new Date().toISOString(), nivel: this.nivel }, r);
+      this.subirNivel(); salvar();
+      registrarSessao({ quando: new Date().toISOString(), dia: hojeStr(), aula: 'ouvido:' + bloco, minutos: OUV.blocos[bloco].min, completa: true, ouvido: true });
+    },
+    // três dias com 85% nos intervalos e no ditado, no nível atual: sobe (até 5)
+    subirNivel() {
+      const d = this.dados; const dias = Object.keys(d.dias).sort().slice(-3);
+      if (dias.length < 3 || d.nivel >= 5) return;
+      const ok = dias.every(k => { const x = d.dias[k]; const p = b => x[b] && x[b].total && x[b].acertos / x[b].total >= 0.85 && (x[b].nivel || 1) === d.nivel; return p('intervalos') && p('ditado'); });
+      if (ok) { d.nivel = (d.nivel || 1) + 1; d.subiuEm = hojeStr(); }
+    },
+    sequencia() { // dias seguidos com os três blocos
+      let n = 0; const d = new Date();
+      for (let i = 0; i < 400; i++) { const x = this.dados.dias[hojeStr(d)]; if (x && x.intervalos && x.ditado && x.tirar) n++; else if (i > 0) break; d.setDate(d.getDate() - 1); }
+      return n;
+    },
+    intervalosDoNivel(n) {
+      const base = n >= 3 ? [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] : n === 2 ? [2, 3, 4, 5, 7, 9, 12] : [2, 4, 7, 12];
+      return base;
+    }
+  };
+  // teclado clicável: funciona com o piano MIDI e também com o dedo na tela
+  function tecladoOuvido(cv, lo, hi, aoTocar) {
+    let marcas = new Map();
+    const pintar = () => { const { ctx, w, h } = prepararCanvas(cv); ctx.clearRect(0, 0, w, h); desenharTeclado(ctx, geometria(lo, hi, w), lo, hi, 0, h, marcas, {}); };
+    const ro = new ResizeObserver(pintar); ro.observe(cv);
+    cv.addEventListener('pointerdown', e => {
+      const r = cv.getBoundingClientRect(); const x = e.clientX - r.left, y = e.clientY - r.top;
+      const geo = geometria(lo, hi, r.width);
+      let achou = null;
+      for (let m = lo; m <= hi; m++) { const p = geo.pos.get(m); if (p && p.preta && x >= p.x && x <= p.x + p.w && y <= r.height * 0.62) achou = m; }
+      if (achou === null) for (let m = lo; m <= hi; m++) { const p = geo.pos.get(m); if (p && !p.preta && x >= p.x && x <= p.x + p.w) achou = m; }
+      if (achou !== null) aoTocar(achou);
+    });
+    return { pintar, set(m) { marcas = m; pintar(); }, get marcas() { return marcas; }, destruir() { ro.disconnect(); } };
+  }
+  function tocarSequencia(notas, bpm, ganho = 0.75) {
+    const ctx = Som.iniciar(); if (!ctx) return 0;
+    const t0 = ctx.currentTime + 0.08, seg = 60 / bpm;
+    let fim = 0;
+    notas.forEach(n => { Som.nota(n.m, t0 + n.t * seg, Math.max(0.15, n.d * seg * 0.95), n.v ?? ganho); fim = Math.max(fim, (n.t + n.d) * seg); });
+    return fim * 1000 + 150;
+  }
+  // escuta o piano (ou o teclado da tela) até juntar n notas ou até o silêncio
+  function capturarNotas(n, cb, teclado) {
+    let notas = [], timer = null, ativo = true;
+    const fim = () => { if (!ativo) return; ativo = false; Midi.ouvintes.delete(ouv); if (timer) clearTimeout(timer); cb(notas); };
+    const entra = m => {
+      if (!ativo) return;
+      notas.push(m); if (teclado) { const mk = new Map(teclado.marcas); mk.set(m, { cor: css('--press'), rotulo: NOMES[m % 12], textoCor: '#10121a' }); teclado.set(mk); }
+      if (timer) clearTimeout(timer);
+      if (notas.length >= n) { timer = setTimeout(fim, 120); }
+      else timer = setTimeout(fim, 2600);
+    };
+    const ouv = (tipo, m) => { if (tipo === 'on') entra(m); };
+    Midi.ouvintes.add(ouv);
+    return { entra, cancelar() { ativo = false; Midi.ouvintes.delete(ouv); if (timer) clearTimeout(timer); }, get notas() { return notas; } };
+  }
+  const sorteio = arr => arr[Math.floor(Math.random() * arr.length)];
+  const ESCALAS = { 'Dó maior': [0, 2, 4, 5, 7, 9, 11], 'Sol maior': [7, 9, 11, 0, 2, 4, 6], 'Fá maior': [5, 7, 9, 10, 0, 2, 4], 'Ré maior': [2, 4, 6, 7, 9, 11, 1], 'Lá menor': [9, 11, 0, 2, 4, 5, 7], 'Mi menor': [4, 6, 7, 9, 11, 0, 2] };
+  function fraseDitado(nivel) {
+    const nomes = nivel <= 2 ? ['Dó maior'] : nivel <= 3 ? ['Dó maior', 'Sol maior', 'Fá maior'] : Object.keys(ESCALAS);
+    const tom = sorteio(nomes), graus = ESCALAS[tom];
+    const tam = nivel === 1 ? 3 + Math.floor(Math.random() * 2) : nivel === 2 ? 4 + Math.floor(Math.random() * 2) : nivel === 3 ? 5 + Math.floor(Math.random() * 2) : nivel === 4 ? 6 + Math.floor(Math.random() * 2) : 7 + Math.floor(Math.random() * 2);
+    const salto = nivel === 1 ? 1 : nivel === 2 ? 2 : nivel === 3 ? 3 : 4;
+    // notas da escala numa faixa de uma oitava e meia a partir do Dó central
+    const escala = []; for (let m = 57; m <= 84; m++) if (graus.includes(m % 12)) escala.push(m);
+    let i = escala.findIndex(m => m >= 60 && m % 12 === graus[0]); if (i < 0) i = 5;
+    const seq = [escala[i]];
+    for (let k = 1; k < tam; k++) {
+      let passo = Math.floor(Math.random() * (2 * salto + 1)) - salto; if (passo === 0) passo = Math.random() < 0.5 ? 1 : -1;
+      i = clamp(i + passo, 2, escala.length - 3); seq.push(escala[i]);
+    }
+    const ritmo = nivel >= 4;
+    let t = 0; const notas = seq.map((m, k) => { const d = ritmo && k === seq.length - 1 ? 2 : (ritmo && Math.random() < 0.25 ? 0.5 : 1); const n = { m, t, d }; t += d; return n; });
+    return { tom, notas, bpm: 84 };
+  }
+  function compararSeq(esperado, tocado) {
+    const n = esperado.length; const certos = []; let acertos = 0;
+    for (let i = 0; i < n; i++) { const ok = tocado[i] === esperado[i]; certos.push(ok); if (ok) acertos++; }
+    let oitava = 0;
+    if (acertos < n && tocado.length >= n) { const dif = tocado[0] - esperado[0]; if (dif !== 0 && dif % 12 === 0 && esperado.every((m, i) => tocado[i] === m + dif)) oitava = dif / 12; }
+    return { acertos, certos, oitava, completo: tocado.length >= n };
+  }
+  function renderOuvido(sub) {
+    const el = $('#vista-ouvido'); if (!OUV) { el.innerHTML = '<p class="suave">Treino de ouvido indisponível nesta versão.</p>'; return; }
+    if (playerAtual) { playerAtual.destruir(); playerAtual = null; }
+    if (sub && OUV.blocos[sub]) return renderBlocoOuvido(sub);
+    const d = Ouvido.dados, hoje = Ouvido.hoje(), seq = Ouvido.sequencia();
+    const nivelTxt = ['', 'Intervalos grandes, frases curtas e por grau conjunto', 'Entram terças menores, quartas e sextas; frases de 4 a 5 notas', 'Todos os intervalos; frases com saltos e em Sol e Fá maior', 'Intervalos descendentes, ritmo nas frases, modo menor', 'Dois sons juntos (harmônico) e frases longas'][Ouvido.nivel];
+    const cards = Object.entries(OUV.blocos).map(([k, b]) => {
+      const r = hoje[k];
+      const extra = k === 'tirar' && d.peca && d.pecas[d.peca] ? `<p class="aviso">${esc((C.biblioteca.find(p => p.id === d.peca) || {}).titulo || '')}: frase ${(d.pecas[d.peca].frase || 0) + 1}${d.pecas[d.peca].total ? ' de ' + d.pecas[d.peca].total : ''}${d.pecas[d.peca].completa ? ' · completa' : ''}</p>` : '';
+      return `<article class="peca-card ouvido-card ${r ? 'feito' : ''}">
+        <div><span class="rotulo">${b.min} min${r ? ' · feito hoje' : ''}</span><h3>${esc(b.titulo)}</h3><p class="aviso">${esc(b.texto)}</p>${extra}</div>
+        ${r && r.total ? `<p class="aviso"><b>${r.acertos} de ${r.total}</b> ${k === 'tirar' ? 'frases' : 'certas'} hoje</p>` : ''}
+        <div class="linha-botoes"><a class="btn ${r ? '' : 'primario'}" href="#ouvido-${k}">${r ? 'Fazer de novo' : 'Começar'} →</a></div>
+      </article>`;
+    }).join('');
+    el.innerHTML = `<div style="display:grid;gap:22px">
+      <div class="aula-cab"><span class="rotulo">À parte dos ${LIMITE_MIN} minutos · não cansa a mão</span><h1>${esc(OUV.titulo)}</h1><p class="texto">${esc(OUV.texto)}</p>
+        <div class="meta"><span>Nível de ouvido ${Ouvido.nivel} de 5</span><span>${seq} dia${seq === 1 ? '' : 's'} seguido${seq === 1 ? '' : 's'}</span><span>${Object.values(hoje).filter(Boolean).length} de 3 blocos hoje</span></div>
+        <p class="aviso">${esc(nivelTxt)}. O nível sobe depois de três dias com 85% de acerto nos intervalos e no ditado.</p></div>
+      ${blocoNarracao('ouvido', 'Por que treinar o ouvido', OUV.narracao)}
+      <div class="biblioteca ouvido-blocos">${cards}</div>
+      <p class="aviso">Funciona com o piano MIDI e também tocando no teclado da tela. ${Midi.estado === 'conectado' ? 'Piano conectado.' : 'Sem piano conectado: use o teclado da tela ou toque em “Conectar piano” no topo.'}</p>
+    </div>`;
+  }
+  function renderBlocoOuvido(bloco) {
+    const el = $('#vista-ouvido'); const b = OUV.blocos[bloco]; const nivel = Ouvido.nivel;
+    el.innerHTML = `<div style="display:grid;gap:18px">
+      <div class="aula-cab"><span class="rotulo">Treino de ouvido · nível ${nivel}</span><h1>${esc(b.titulo)}</h1><p class="texto">${esc(b.texto)}</p></div>
+      ${blocoNarracao('ouvido-' + bloco, 'Como fazer', b.narracao)}
+      <div class="ouvido-painel" id="ouvido-painel">
+        <div class="ouvido-topo"><span class="rotulo" id="ouv-rotulo">Preparando…</span><span class="mono" id="ouv-placar"></span></div>
+        <div class="palco ouvido-palco"><canvas id="cv-ouvido" aria-label="Teclado: toque aqui ou no piano"></canvas></div>
+        <div class="treinador"><div class="tr-msg" id="ouv-msg" aria-live="assertive">Toque em <b>Ouvir</b> para começar.</div></div>
+        <div class="linha-botoes" id="ouv-botoes"></div>
+      </div>
+      <div class="linha-botoes"><a class="btn" href="#ouvido">← Voltar ao treino de ouvido</a></div>
+    </div>`;
+    const cv = $('#cv-ouvido'), msg = $('#ouv-msg'), rot = $('#ouv-rotulo'), placar = $('#ouv-placar'), bot = $('#ouv-botoes');
+    const lo = 48, hi = 84;
+    let captura = null, destruido = false;
+    const teclado = tecladoOuvido(cv, lo, hi, m => { Som.iniciar(); Som.nota(m, Som.ctx.currentTime, 0.4, 0.7); if (captura) captura.entra(m); });
+    const limpar = () => { if (captura) captura.cancelar(); captura = null; };
+    const obs = new MutationObserver(() => { if (!document.body.contains(cv)) { destruido = true; limpar(); teclado.destruir(); obs.disconnect(); } });
+    obs.observe($('#vista-ouvido'), { childList: true });
+    const botoes = lista => { bot.innerHTML = lista.map(([id, txt, prim]) => `<button class="btn ${prim ? 'primario' : ''}" type="button" data-ouv="${id}">${txt}</button>`).join(''); };
+    const marcar = pares => { const mk = new Map(); pares.forEach(([m, cor, r]) => mk.set(m, { cor: css(cor), rotulo: r ?? NOMES[m % 12], textoCor: cor === '--ok' || cor === '--bad' ? '#ffffff' : '#10121a' })); teclado.set(mk); };
+    const dizer = (html, tipo) => { msg.innerHTML = html; msg.dataset.tipo = tipo || ''; };
+    const falar = ids => { if (estado.prefs.treinadorVoz === false) return; ids.forEach(id => Fluxo.falar('coach-' + id, (C.coach || {})[id] || '').catch(() => {})); };
+
+    /* ---------- intervalos ---------- */
+    if (bloco === 'intervalos') {
+      const TOTAL = 10; let k = 0, acertos = 0, atual = null, tentativa = 0, respondidas = 0;
+      const nova = () => {
+        if (destruido) return;
+        if (k >= TOTAL) return terminar();
+        const lista = Ouvido.intervalosDoNivel(nivel);
+        const iv = sorteio(lista); const desce = nivel >= 4 && Math.random() < 0.5; const harm = nivel >= 5 && Math.random() < 0.5;
+        const ref = 55 + Math.floor(Math.random() * 18); const alvo = desce ? ref - iv : ref + iv;
+        atual = { ref, alvo, iv, desce, harm }; tentativa = 0; k++;
+        rot.textContent = `Pergunta ${k} de ${TOTAL}`; placar.textContent = `${acertos} certas`;
+        marcar([[ref, '--accent', NOMES[ref % 12]]]);
+        dizer(`A nota acesa é <b>${esc(nomeMidi(ref))}</b>. Ouça as duas notas e toque a segunda${desce ? ' (ela está abaixo)' : ''}.`);
+        botoes([['ouvir', '▶ Ouvir de novo'], ['pular', 'Pular'], ['parar', 'Parar']]);
+        tocar(); escutar();
+      };
+      const tocar = () => { const { ref, alvo, harm } = atual; tocarSequencia(harm ? [{ m: ref, t: 0, d: 1.6 }, { m: alvo, t: 0, d: 1.6 }] : [{ m: ref, t: 0, d: 0.9 }, { m: alvo, t: 1, d: 1.2 }], 72); };
+      const escutar = () => {
+        limpar();
+        captura = capturarNotas(1, notas => {
+          const m = notas[0]; if (m === undefined || destruido) return;
+          const { ref, alvo, iv } = atual;
+          if (m === ref) { dizer('Essa é a nota de referência. Agora toque a <b>segunda</b> nota.'); marcar([[ref, '--accent', NOMES[ref % 12]]]); escutar(); return; }
+          const dist = Math.abs(m - ref); const certa = m === alvo || (dist % 12 === iv % 12 && Math.sign(m - ref) === Math.sign(alvo - ref) && iv !== 12);
+          if (certa) {
+            acertos++; respondidas++; placar.textContent = `${acertos} certas`;
+            marcar([[ref, '--accent', NOMES[ref % 12]], [alvo, '--ok', NOMES[alvo % 12]]]);
+            dizer(`<b>Certo.</b> ${esc(nomeMidi(ref))} → ${esc(nomeMidi(alvo))}: ${NOME_INTERVALO[iv]}${m !== alvo ? ' (em outra oitava, vale)' : ''}.`, 'ok');
+            falar(['bem']); setTimeout(nova, 1500);
+          } else {
+            tentativa++;
+            marcar([[ref, '--accent', NOMES[ref % 12]], [m, '--bad', NOMES[m % 12]]]);
+            const dica = tentativa >= 2 ? ` A resposta era <b>${esc(nomeMidi(alvo))}</b>: ${NOME_INTERVALO[iv]}.` : ` Você tocou ${NOME_INTERVALO[Math.min(12, dist)] || 'mais de uma oitava'}; era ${NOME_INTERVALO[iv]}. Ouça de novo e tente mais uma vez.`;
+            dizer(`<b>Não foi essa.</b>${dica}`, 'erro');
+            if (tentativa >= 2) { respondidas++; marcar([[ref, '--accent', NOMES[ref % 12]], [alvo, '--ok', NOMES[alvo % 12]], [m, '--bad', NOMES[m % 12]]]); tocarSequencia([{ m: ref, t: 0, d: 0.9 }, { m: alvo, t: 1, d: 1.2 }], 72); setTimeout(nova, 2600); }
+            else { setTimeout(() => { tocar(); escutar(); }, 900); }
+          }
+        }, null);
+      };
+      const terminar = () => {
+        limpar(); const total = Math.max(respondidas, acertos); const r = { acertos, total: Math.max(total, 1) };
+        Ouvido.registrar('intervalos', r);
+        rot.textContent = 'Bloco concluído'; teclado.set(new Map());
+        dizer(`<b>${acertos} de ${total}</b> intervalos certos${acertos / Math.max(total, 1) >= 0.85 ? ': ótimo ouvido hoje' : '. Amanhã de novo; o ouvido cresce com a repetição'}.`, 'ok');
+        botoes([['voltar', 'Voltar ao treino de ouvido', true], ['denovo', 'Fazer de novo']]);
+      };
+      bot.addEventListener('click', e => {
+        const b = e.target.closest('[data-ouv]'); if (!b) return;
+        if (b.dataset.ouv === 'comecar') nova();
+        if (b.dataset.ouv === 'ouvir') tocar();
+        if (b.dataset.ouv === 'pular') nova();
+        if (b.dataset.ouv === 'parar') terminar();
+        if (b.dataset.ouv === 'voltar') location.hash = 'ouvido';
+        if (b.dataset.ouv === 'denovo') { k = 0; acertos = 0; nova(); }
+      });
+      botoes([['comecar', '▶ Ouvir', true]]);
+      return;
+    }
+
+    /* ---------- ditado melódico ---------- */
+    if (bloco === 'ditado') {
+      const TOTAL = 6; let k = 0, acertos = 0, frase = null, ouvidas = 0, respondidas = 0;
+      const nova = () => {
+        if (destruido) return;
+        if (k >= TOTAL) return terminar();
+        frase = fraseDitado(nivel); ouvidas = 0; k++;
+        rot.textContent = `Frase ${k} de ${TOTAL} · ${frase.tom} · ${frase.notas.length} notas`; placar.textContent = `${acertos} certas`;
+        marcar([[frase.notas[0].m, '--accent', NOMES[frase.notas[0].m % 12]]]);
+        dizer(`Começa em <b>${esc(nomeMidi(frase.notas[0].m))}</b>, ${frase.notas.length} notas. Ouça até o fim e toque de volta.`);
+        botoes([['ouvir', '▶ Ouvir de novo (3)'], ['resposta', 'Mostrar resposta'], ['pular', 'Pular'], ['parar', 'Parar']]);
+        tocar(); escutar();
+      };
+      const tocar = () => { if (ouvidas >= 3) { dizer('Já foram as três vezes. Toque o que lembra; o site mostra onde errou.'); return; } ouvidas++; const b = bot.querySelector('[data-ouv="ouvir"]'); if (b) b.textContent = `▶ Ouvir de novo (${3 - ouvidas})`; tocarSequencia(frase.notas, frase.bpm); };
+      const escutar = () => {
+        limpar();
+        captura = capturarNotas(frase.notas.length, notas => {
+          if (destruido) return;
+          const esperado = frase.notas.map(n => n.m); const r = compararSeq(esperado, notas);
+          const pares = esperado.map((m, i) => [m, r.certos[i] || r.oitava ? '--ok' : '--bad', NOMES[m % 12]]);
+          notas.forEach((m, i) => { if (i < esperado.length && !r.certos[i] && !r.oitava) pares.push([m, '--bad', NOMES[m % 12]]); });
+          marcar(pares);
+          if (r.acertos === esperado.length || r.oitava) {
+            acertos++; respondidas++; placar.textContent = `${acertos} certas`;
+            dizer(`<b>Certa.</b> ${esperado.map(m => NOMES[m % 12]).join(' ')}${r.oitava ? ' (uma oitava ' + (r.oitava > 0 ? 'acima' : 'abaixo') + ', vale)' : ''}.`, 'ok');
+            falar(['bem']); setTimeout(nova, 1800);
+          } else {
+            const erradas = esperado.map((m, i) => (!r.certos[i] ? `nota ${i + 1} era ${NOMES[m % 12]}${notas[i] !== undefined ? ', você tocou ' + NOMES[notas[i] % 12] : ', faltou'}` : null)).filter(Boolean);
+            dizer(`<b>${r.acertos} de ${esperado.length}.</b> ${esc(erradas.slice(0, 3).join('; '))}${erradas.length > 3 ? '…' : ''}. ${ouvidas < 3 ? 'Ouça de novo e tente outra vez.' : 'Toque mais uma vez olhando as teclas acesas.'}`, 'erro');
+            setTimeout(() => { if (ouvidas < 3) tocar(); escutar(); }, 1200);
+          }
+        }, null);
+      };
+      const terminar = () => {
+        limpar(); const total = Math.max(respondidas, acertos); Ouvido.registrar('ditado', { acertos, total: Math.max(total, 1) });
+        rot.textContent = 'Bloco concluído'; teclado.set(new Map());
+        dizer(`<b>${acertos} de ${total}</b> frases certas${acertos / Math.max(total, 1) >= 0.85 ? ': ótimo' : '. O ditado cresce devagar; amanhã de novo'}.`, 'ok');
+        botoes([['voltar', 'Voltar ao treino de ouvido', true], ['denovo', 'Fazer de novo']]);
+      };
+      bot.addEventListener('click', e => {
+        const b = e.target.closest('[data-ouv]'); if (!b) return;
+        if (b.dataset.ouv === 'comecar') nova();
+        if (b.dataset.ouv === 'ouvir') tocar();
+        if (b.dataset.ouv === 'resposta') { respondidas++; marcar(frase.notas.map(n => [n.m, '--ok', NOMES[n.m % 12]])); dizer(`Resposta: <b>${frase.notas.map(n => NOMES[n.m % 12]).join(' ')}</b>. Toque junto com as teclas acesas e vá para a próxima.`); ouvidas = 3; tocarSequencia(frase.notas, frase.bpm); }
+        if (b.dataset.ouv === 'pular') nova();
+        if (b.dataset.ouv === 'parar') terminar();
+        if (b.dataset.ouv === 'voltar') location.hash = 'ouvido';
+        if (b.dataset.ouv === 'denovo') { k = 0; acertos = 0; nova(); }
+      });
+      botoes([['comecar', '▶ Ouvir', true]]);
+      return;
+    }
+
+    /* ---------- tirar de ouvido ---------- */
+    if (bloco === 'tirar') {
+      const d = Ouvido.dados; const lista = (C.biblioteca || []).filter(p => p.arquivo);
+      const nivelCurso = Math.max(1, ...C.niveis.filter(n => n.n > 1 && provaPassada(n.n - 1)).map(n => n.n), 1);
+      const sugerida = () => { const emAndamento = lista.find(p => musicaDaPeca(p.id) && !(d.pecas[p.id] || {}).completa); return (emAndamento || lista.filter(p => p.nivel <= nivelCurso && !(d.pecas[p.id] || {}).completa)[0] || lista[0]).id; };
+      if (!d.peca || !lista.find(p => p.id === d.peca)) d.peca = sugerida();
+      const TAM = [0, 4, 5, 6, 8, 10][nivel];
+      let musica = null, melodia = [], frases = [], prog = null, acertos = 0, feitas = 0, ouvidas = 0;
+      const selHTML = `<label class="aviso" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">Peça: <select id="ouv-peca">${lista.map(p => `<option value="${esc(p.id)}" ${p.id === d.peca ? 'selected' : ''}>${esc(p.titulo)} · nível ${p.nivel}${(d.pecas[p.id] || {}).completa ? ' ✓' : ''}</option>`).join('')}</select></label>`;
+      $('#ouvido-painel').insertAdjacentHTML('afterbegin', selHTML);
+      $('#ouv-peca').addEventListener('change', e => { d.peca = e.target.value; salvar(); carregar(); });
+      const carregar = async () => {
+        limpar(); const peca = lista.find(p => p.id === d.peca); if (!peca) return;
+        rot.textContent = 'Carregando a peça…'; dizer('Um instante.');
+        try { musica = await abrirPeca(peca); } catch (err) { dizer('Não consegui carregar a peça (' + esc(err.message) + ').', 'erro'); return; }
+        if (destruido) return;
+        const cfg = Object.assign({}, musica.config, { nivel: 'simples' });
+        melodia = notasDaMao({ midi: musica.midi, config: cfg }, cfg.md || cfg.me, 'D');
+        frases = []; for (let i = 0; i < melodia.length; i += TAM) frases.push(melodia.slice(i, i + TAM));
+        prog = d.pecas[peca.id] = d.pecas[peca.id] || { frase: 0, total: frases.length };
+        prog.total = frases.length; if (prog.frase >= frases.length) { prog.frase = frases.length; prog.completa = true; }
+        salvar();
+        if (prog.completa) { rot.textContent = `${peca.titulo} · completa`; dizer(`<b>Você já tirou esta peça inteira de ouvido.</b> Escolha outra na lista, ou recomece esta do início.`, 'ok'); botoes([['recomecar', 'Recomeçar esta peça'], ['voltar', 'Voltar ao treino de ouvido', true]]); teclado.set(new Map()); return; }
+        rot.textContent = `${peca.titulo} · frase ${prog.frase + 1} de ${frases.length}`;
+        dizer(`Melodia da mão direita, ${frases[prog.frase].length} notas. A primeira nota está acesa. Toque em <b>Ouvir</b>.`);
+        marcar([[frases[prog.frase][0].m, '--accent', frases[prog.frase][0].n]]);
+        botoes([['ouvir', '▶ Ouvir a frase', true], ['contexto', '▶ Com a frase anterior'], ['resposta', 'Mostrar resposta'], ['pular', 'Pular esta frase'], ['parar', 'Encerrar por hoje']]);
+      };
+      const fraseAtual = () => frases[prog.frase];
+      const tocarFrase = comAnterior => {
+        const f = fraseAtual(); if (!f) return; ouvidas++;
+        const ant = comAnterior && prog.frase > 0 ? frases[prog.frase - 1] : [];
+        const notas = [...ant, ...f]; const t0 = notas[0].t;
+        tocarSequencia(notas.map(n => ({ m: n.m, t: n.t - t0, d: n.d, v: Math.max(0.5, n.v) })), Math.round(musica.midi.bpm * 0.75));
+        escutar();
+      };
+      const escutar = () => {
+        limpar(); const f = fraseAtual(); if (!f) return;
+        captura = capturarNotas(f.length, notas => {
+          if (destruido) return;
+          const esperado = f.map(n => n.m); const r = compararSeq(esperado, notas);
+          const pares = esperado.map((m, i) => [m, r.certos[i] || r.oitava ? '--ok' : '--bad', f[i].n]);
+          notas.forEach((m, i) => { if (i < esperado.length && !r.certos[i] && !r.oitava) pares.push([m, '--bad', NOMES[m % 12]]); });
+          marcar(pares);
+          if (r.acertos === esperado.length || r.oitava) {
+            acertos++; feitas++; prog.frase++; if (prog.frase >= frases.length) prog.completa = true; salvar();
+            dizer(`<b>Frase certa.</b> ${f.map(n => n.n).join(' ')}. ${prog.completa ? 'Peça completa!' : 'Vem a próxima.'}`, 'ok'); falar(['bem']);
+            placar.textContent = `${acertos} frase${acertos === 1 ? '' : 's'} hoje`;
+            setTimeout(() => { if (prog.completa) terminar(); else { ouvidas = 0; carregar(); setTimeout(() => tocarFrase(false), 600); } }, 1800);
+          } else {
+            feitas += 0;
+            const erradas = esperado.map((m, i) => (!r.certos[i] ? `nota ${i + 1} era ${f[i].n}${notas[i] !== undefined ? ', você tocou ' + NOMES[notas[i] % 12] : ', faltou'}` : null)).filter(Boolean);
+            dizer(`<b>${r.acertos} de ${esperado.length}.</b> ${esc(erradas.slice(0, 3).join('; '))}${erradas.length > 3 ? '…' : ''}. Ouça de novo quantas vezes precisar.`, 'erro');
+            escutar();
+          }
+        }, null);
+      };
+      const terminar = () => {
+        limpar(); Ouvido.registrar('tirar', { acertos, total: Math.max(acertos, 1), frases: acertos, peca: d.peca });
+        rot.textContent = 'Bloco concluído'; teclado.set(new Map());
+        dizer(`<b>${acertos} frase${acertos === 1 ? '' : 's'}</b> tirada${acertos === 1 ? '' : 's'} de ouvido hoje${prog && prog.completa ? '. Peça completa' : ''}. O progresso fica salvo para amanhã.`, 'ok');
+        botoes([['voltar', 'Voltar ao treino de ouvido', true], ['continuar', 'Continuar mais um pouco']]);
+      };
+      bot.addEventListener('click', e => {
+        const b = e.target.closest('[data-ouv]'); if (!b) return;
+        const q = b.dataset.ouv;
+        if (q === 'ouvir') tocarFrase(false);
+        if (q === 'contexto') tocarFrase(true);
+        if (q === 'resposta') { const f = fraseAtual(); if (f) { marcar(f.map(n => [n.m, '--ok', n.n])); dizer(`Resposta: <b>${f.map(n => n.n).join(' ')}</b>. Toque junto; quando sair certa, ela conta.`); tocarFrase(false); } }
+        if (q === 'pular') { if (prog) { prog.frase++; if (prog.frase >= frases.length) prog.completa = true; salvar(); carregar(); } }
+        if (q === 'parar') terminar();
+        if (q === 'continuar') carregar();
+        if (q === 'recomecar') { if (prog) { prog.frase = 0; prog.completa = false; salvar(); carregar(); } }
+        if (q === 'voltar') location.hash = 'ouvido';
+      });
+      carregar();
+      return;
+    }
+  }
+
   /* ------------------------------------------------------------ início */
-  window.__curso = { avaliar, Midi, Nuvem, estado, lerMidi, planoMusica, configPadrao, aulaDaEtapa, Guia, Jornada, provaDe, provaPassada, marcarItemProva, get player() { return playerAtual; } };
+  window.__curso = { avaliar, Midi, Nuvem, estado, lerMidi, planoMusica, configPadrao, aulaDaEtapa, Guia, Jornada, provaDe, provaPassada, marcarItemProva, Ouvido, Som, get player() { return playerAtual; } };
   if ('speechSynthesis' in window) { try { speechSynthesis.getVoices(); speechSynthesis.onvoiceschanged = () => {}; } catch (e) { /* nada */ } }
   if ('serviceWorker' in navigator && location.protocol === 'https:') { try { navigator.serviceWorker.register('sw.js').catch(() => {}); } catch (e) { /* nada */ } }
   const sair = $('#guiado-sair'); if (sair) sair.addEventListener('click', () => { Fluxo.parar(); if (playerAtual && playerAtual.tocando) playerAtual.parar(); rolar($('.topo'), 'start'); });

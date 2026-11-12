@@ -253,6 +253,12 @@ body.foco .narracao, body.foco .figuras, body.foco .aula-cab, body.foco .hoje-ca
 body.foco .aula-info, body.foco .criterio, body.foco .plano-estudo, body.foco .peca-box, body.foco .hoje-rodape, body.foco .navaulas,
 body.foco .leitura-aviso, body.foco #resultado, body.foco .topo, body.foco .ativar-som, body.foco .player:not(.leitura) .partitura, body.foco .tabela-wrap, body.foco h2, body.foco h3 { display: none !important; }
 body.foco main { padding-top: 8px; }
+/* treino de ouvido */
+.ouvido-card.feito { border-left: 4px solid var(--ok); }
+.ouvido-painel { display: grid; gap: 12px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; }
+.ouvido-topo { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.ouvido-palco { height: clamp(120px, 22vh, 190px); cursor: pointer; touch-action: manipulation; }
+.ouvido-painel select { font: inherit; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); max-width: 100%; }
 /* aula guiada (fluxo automático): sem barra do topo, sem textos de apoio; fica a explicação visual, o teclado e o resultado */
 body.guiado .topo, body.guiado .controles, body.guiado .aula-info, body.guiado .criterio, body.guiado .plano-estudo, body.guiado .tabela-wrap,
 body.guiado .navaulas, body.guiado .leitura-aviso, body.guiado .narracao, body.guiado .aula-cab p, body.guiado .hoje-cab p, body.guiado .passos-dia, body.guiado .peca-info .texto { display: none !important; }
@@ -553,6 +559,7 @@ h2 { text-wrap: balance; }
       <a href="#curso" data-nav="curso">Curso</a>
       <a href="#aula-1-1" data-nav="aula" id="nav-aula">Aula</a>
       <a href="#musicas" data-nav="musicas">Músicas</a>
+      <a href="#ouvido" data-nav="ouvido">Ouvido</a>
       <a href="#progresso" data-nav="progresso">Progresso</a>
     </nav>
     <button class="pill" id="pill-midi" type="button" data-estado="pedir">
@@ -571,16 +578,17 @@ h2 { text-wrap: balance; }
     <section class="vista" id="vista-curso" aria-label="O curso"></section>
     <section class="vista" id="vista-aula" aria-label="Aula" hidden></section>
     <section class="vista" id="vista-musicas" aria-label="Músicas" hidden></section>
+    <section class="vista" id="vista-ouvido" aria-label="Treino de ouvido" hidden></section>
     <section class="vista" id="vista-progresso" aria-label="Progresso" hidden></section>
   </div>
 </main>
 
-<script src="vendor/vexflow.js?v=202611121340"></script>
-<script src="partitura.js?v=202611121340"></script>
-<script src="vendor/supabase.js?v=202611121340"></script>
-<script src="config.js?v=202611121340"></script>
-<script src="dados.js?v=202611121340"></script>
-<script src="app.js?v=202611121340"></script>
+<script src="vendor/vexflow.js?v=202611121359"></script>
+<script src="partitura.js?v=202611121359"></script>
+<script src="vendor/supabase.js?v=202611121359"></script>
+<script src="config.js?v=202611121359"></script>
+<script src="dados.js?v=202611121359"></script>
+<script src="app.js?v=202611121359"></script>
 
 </body>
 </html>
