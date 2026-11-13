@@ -795,7 +795,7 @@
     recs.forEach(x => porMao[x.h].push(x));
     // legato
     if (aula.metricas.includes('legato')) {
-      out.buracos = 0; out.embolou = 0; out.ondeBuracos = {};
+      out.buracos = 0; out.embolou = 0; out.ondeBuracos = {}; out.ligaduras = 0;
       for (const h of ['D', 'E']) {
         const lista = porMao[h].sort((a, b) => a.t - b.t || a.m - b.m);
         for (let i = 0; i < lista.length - 1; i++) {
@@ -804,13 +804,16 @@
           if (lista.filter(x => x.t === a.t).length > 1 || lista.filter(x => x.t === b.t).length > 1) continue;
           if (a.on == null || b.on == null) continue;
           const gap = a.off == null ? -Infinity : b.on - a.off;
-          if (gap > 35) {
+          out.ligaduras++;
+          // até 70 ms o ouvido ainda escuta ligado (o sensor da tecla solta antes do abafador cair); acima disso é buraco
+          if (gap > 70) {
             out.buracos++;
             const k = `${h === 'D' ? 'MD' : 'ME'} ${a.f}→${b.f} (${a.n}→${b.n})`;
             out.ondeBuracos[k] = (out.ondeBuracos[k] || 0) + 1;
           } else if (gap < -160) out.embolou++;
         }
       }
+      out.legato = out.ligaduras ? Math.round(100 * (1 - out.buracos / out.ligaduras)) : null;
     }
     // staccato
     if (aula.metricas.includes('staccato')) {
@@ -894,7 +897,8 @@
     if (p.bpm != null && out.tempoMedido && out.bpm < p.bpm) faltas.push(`tempo ♩ = ${out.bpm} (meta ♩ = ${p.bpm})`);
     if (p.regularidadeE != null && out.regularidadeE != null && out.regularidadeE < p.regularidadeE) faltas.push(`regularidade da esquerda ${out.regularidadeE}% (meta ${p.regularidadeE}%)`);
     if (p.reencontro != null && out.reencontro != null && out.reencontro < p.reencontro) faltas.push(`reencontro das mãos ${out.reencontro}% dos compassos (meta ${p.reencontro}%)`);
-    if (p.buracosMax != null && (out.buracos ?? 0) > p.buracosMax) faltas.push(`${out.buracos} buracos no legato (máximo ${p.buracosMax})`);
+    if (p.legatoMin != null && out.legato != null && out.legato < p.legatoMin) faltas.push(`legato ${out.legato}% das ligaduras sem buraco (meta ${p.legatoMin}%)`);
+    else if (p.legatoMin == null && p.buracosMax != null && (out.buracos ?? 0) > p.buracosMax) faltas.push(`legato com ${out.buracos} buracos (máximo ${p.buracosMax})`);
     if (p.dinamica != null && (out.dinamica ?? 0) < p.dinamica) faltas.push(`dinâmica ${out.dinamica ?? 0}% (meta ${p.dinamica}%)`);
     if (p.equilibrio != null && (out.equilibrio ?? -100) < p.equilibrio) faltas.push(`melodia ${out.equilibrio == null ? '—' : out.equilibrio + '%'} mais forte que o acompanhamento (meta ${p.equilibrio}%)`);
     if (p.pedal != null && out.pedal != null && out.pedal < p.pedal) faltas.push(`trocas de pedal certas ${out.pedal}% (meta ${p.pedal}%)`);
@@ -1947,7 +1951,11 @@
     if (r.regularidadeE != null) met.push(`<div class="metrica" data-nivel="${nivel(r.regularidadeE, p.regularidadeE)}"><span>Regularidade da esquerda</span><b>${r.regularidadeE}%</b><span>o maestro</span></div>`);
     if (r.reencontro != null) met.push(`<div class="metrica" data-nivel="${nivel(r.reencontro, p.reencontro)}"><span>Reencontro no compasso</span><b>${r.reencontro}%</b><span>${r.reencontros.enc} de ${r.reencontros.tot} compassos</span></div>`);
     if (r.bpm != null) met.push(`<div class="metrica" data-nivel="${p.bpm ? (r.bpm >= p.bpm ? 'ok' : 'warn') : ''}"><span>Seu tempo</span><b>♩ = ${r.bpm}</b><span>${p.bpm ? 'meta ♩ = ' + p.bpm : ''}</span></div>`);
-    if (r.buracos != null) met.push(`<div class="metrica" data-nivel="${r.buracos <= (p.buracosMax ?? 1) ? 'ok' : r.buracos <= 3 ? 'warn' : 'bad'}"><span>Buracos no legato</span><b>${r.buracos}</b><span>${r.embolou ? r.embolou + ' notas emboladas' : 'silêncios entre notas ligadas'}</span></div>`);
+    if (r.buracos != null) {
+      const meta = p.legatoMin ?? (p.buracosMax != null && r.ligaduras ? Math.round(100 * (1 - p.buracosMax / r.ligaduras)) : 85);
+      const nivel = r.legato == null || r.legato >= meta ? 'ok' : r.legato >= meta - 10 ? 'warn' : 'bad';
+      met.push(`<div class="metrica" data-nivel="${nivel}"><span>Legato</span><b>${r.legato == null ? '—' : r.legato + '%'}</b><span>${r.buracos} buraco${r.buracos === 1 ? '' : 's'} em ${r.ligaduras} ligadura${r.ligaduras === 1 ? '' : 's'}${r.embolou ? ' · ' + r.embolou + ' emboladas' : ''} · meta ${meta}%</span></div>`);
+    }
     if (r.staccato != null) met.push(`<div class="metrica" data-nivel="${r.staccato >= 70 ? 'ok' : r.staccato >= 50 ? 'warn' : 'bad'}"><span>Staccato curto</span><b>${r.staccato}%</b><span>notas que soltaram cedo</span></div>`);
     if (r.dinamica != null) met.push(`<div class="metrica" data-nivel="${nivel(r.dinamica, p.dinamica)}"><span>Dinâmica</span><b>${r.dinamica}%</b><span>aderência ao desenho</span></div>`);
     if (r.equilibrio != null) met.push(`<div class="metrica" data-nivel="${p.equilibrio != null ? (r.equilibrio >= p.equilibrio ? 'ok' : r.equilibrio >= 0 ? 'warn' : 'bad') : ''}"><span>Melodia × acompanhamento</span><b>${r.equilibrio > 0 ? '+' : ''}${r.equilibrio}%</b><span>direita em relação à esquerda</span></div>`);
@@ -1975,7 +1983,7 @@
   }
   function falarFeedback(r) {
     if (estado.prefs.feedbackFalado === false) return;
-    const cat = r.passou ? (r.parcial ? 'parcial' : 'passou') : (['acertos', 'regularidade', 'bpm', 'buracos', 'dinamica', 'equilibrio', 'pedal'].find(k => r.faltas.some(f => f.startsWith({ acertos: 'notas certas', regularidade: 'regularidade', bpm: 'tempo', buracos: 'buracos', dinamica: 'dinâmica', equilibrio: 'melodia', pedal: 'trocas de pedal' }[k]))) || 'acertos');
+    const cat = r.passou ? (r.parcial ? 'parcial' : 'passou') : (['acertos', 'regularidade', 'bpm', 'buracos', 'dinamica', 'equilibrio', 'pedal'].find(k => r.faltas.some(f => f.startsWith({ acertos: 'notas certas', regularidade: 'regularidade', bpm: 'tempo', buracos: 'legato', dinamica: 'dinâmica', equilibrio: 'melodia', pedal: 'trocas de pedal' }[k]))) || 'acertos');
     Narr.parar();
     Fluxo.feedbackAtual = Fluxo.falar('feedback-' + cat, (C.feedback && C.feedback[cat]) || '').catch(() => {});
   }
