@@ -2790,7 +2790,7 @@
         { tipo: 'aula', aula: tecnica, titulo: 'Técnica', sub: AULAS.get(tecnica).titulo, peso: 3, min: T < 30 ? 4 : 5, max: 25 },
         provaAgora ? { tipo: 'prova', nivel: provaAgora, titulo: 'Prova de nível', sub: provaDe(provaAgora).titulo, fixo: 15 }
           : { tipo: 'aula', aula: exercicio, titulo: 'Exercício ou peça', sub: AULAS.get(exercicio).titulo, peso: 4, min: T < 30 ? 6 : 10, max: 30 },
-        rubs.length && modAtualN >= 3 && T >= 45 ? { tipo: 'aula', aula: rubs[0], titulo: 'Rubato', sub: AULAS.get(rubs[0]).titulo, peso: 1.5, min: 5, max: 12 } : null,
+        rubs.length && modAtualN >= 10 && T >= 45 ? { tipo: 'aula', aula: rubs[0], titulo: 'Rubato', sub: AULAS.get(rubs[0]).titulo, peso: 1.5, min: 5, max: 12 } : null,
         OUV && T >= 40 ? { tipo: 'ouvido', bloco: 'cantar', titulo: 'Cantar', sub: 'Afinar com a voz: a frase antes do dedo', fixo: 4 } : null,
         { tipo: 'ouvir', modulo: modEx, titulo: 'Ouvir e cantar', sub: modEx && modEx.ouvir ? modEx.ouvir.rotulo : 'A gravação do módulo', fixo: 5 },
         OUV && T >= 60 ? { tipo: 'ouvido', bloco: 'tirar', titulo: 'Tirar de ouvido', sub: 'Uma frase da peça, sem partitura', fixo: 6 } : null,
