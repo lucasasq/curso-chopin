@@ -235,6 +235,13 @@ p { margin: 0; }
 .campo input[type="range"] { width: 130px; accent-color: var(--accent); }
 .campo b { color: var(--ink); font-family: var(--font-mono); font-weight: 500; min-width: 4.6em; font-variant-numeric: tabular-nums; }
 .chk { display: inline-flex; align-items: center; gap: 6px; font-size: 0.9rem; color: var(--muted); min-height: 38px; }
+.receita { grid-column: 1 / -1; border-top: 1px solid var(--line); padding-top: 10px; margin-top: 4px; }
+.receita summary { cursor: pointer; display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: baseline; list-style: none; }
+.receita summary::-webkit-details-marker { display: none; }
+.receita summary b { font-size: 0.95rem; }
+.receita summary::after { content: '▾'; color: var(--muted); margin-left: auto; }
+.receita[open] summary::after { content: '▴'; }
+.receita .texto { margin: 10px 0 8px; font-size: 0.95rem; }
 .som-estado { display: inline-flex; align-items: center; font-size: 0.8rem; color: var(--muted); min-height: 38px; margin-left: auto; opacity: 0.8; }
 .chk input { width: 18px; height: 18px; accent-color: var(--accent); }
 
@@ -262,7 +269,7 @@ body.foco main { padding-top: 8px; }
 .ouvido-painel select { font: inherit; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); max-width: 100%; }
 /* aula guiada (fluxo automático): sem barra do topo, sem textos de apoio; fica a explicação visual, o teclado e o resultado */
 body.guiado .topo, body.guiado .controles, body.guiado .aula-info, body.guiado .criterio, body.guiado .plano-estudo, body.guiado .tabela-wrap,
-body.guiado .navaulas, body.guiado .leitura-aviso, body.guiado .narracao, body.guiado .aula-cab p, body.guiado .hoje-cab p, body.guiado .passos-dia, body.guiado .peca-info .texto { display: none !important; }
+body.guiado .navaulas, body.guiado .leitura-aviso, body.guiado .narracao, body.guiado .aula-cab p, body.guiado .hoje-cab p, body.guiado .passos-dia, body.guiado .receita, body.guiado .peca-info .texto { display: none !important; }
 body.guiado main { padding-top: calc(10px + env(safe-area-inset-top, 0px)); }
 body.guiado .aula-cab h1, body.guiado .hoje-cab h1 { font-size: 1.3rem; }
 .guiado-sair { position: fixed; top: calc(10px + env(safe-area-inset-top, 0px)); right: 12px; z-index: 10; display: none; align-items: center; gap: 6px; border: 1px solid var(--line); background: var(--surface); color: var(--muted); border-radius: 999px; padding: 6px 12px; font-size: 0.82rem; min-height: 34px; box-shadow: 0 4px 14px rgba(0,0,0,0.12); }
@@ -594,12 +601,12 @@ body.guiado .tempo-dia { display: none; }
   </div>
 </main>
 
-<script src="vendor/vexflow.js?v=202611131217"></script>
-<script src="partitura.js?v=202611131217"></script>
-<script src="vendor/supabase.js?v=202611131217"></script>
-<script src="config.js?v=202611131217"></script>
-<script src="dados.js?v=202611131217"></script>
-<script src="app.js?v=202611131217"></script>
+<script src="vendor/vexflow.js?v=202611131225"></script>
+<script src="partitura.js?v=202611131225"></script>
+<script src="vendor/supabase.js?v=202611131225"></script>
+<script src="config.js?v=202611131225"></script>
+<script src="dados.js?v=202611131225"></script>
+<script src="app.js?v=202611131225"></script>
 
 </body>
 </html>

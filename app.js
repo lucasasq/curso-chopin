@@ -1563,6 +1563,8 @@
             ${C.rotina.map(r => `<div style="flex:${r.min}"><b>${esc(r.t)}</b><span>${r.min} min</span></div>`).join('')}
           </div>
           <div class="rotina-lista">${C.rotina.map(r => `<div><b>${esc(r.t)}</b> <span>· ${esc(r.d)}</span></div>`).join('')}</div>
+          ${(C.receitas || []).length ? `<p class="texto suave" style="margin-top:14px">A jornada da aba Hoje muda com o nível, na ordem em que Chopin ensinava:</p>
+          <div class="rotina-lista receitas">${C.receitas.map(r => `<div><b>Nível ${r.n} · ${esc(r.titulo)}</b> <span>· ${esc(r.blocos.join(' · '))}</span></div>`).join('')}</div>` : ''}
         </div>
       </div>
 
@@ -2778,27 +2780,63 @@
       // 5) revisão: a aula em andamento mais recente que ainda não passou (se houver)
       const emAndamento = ORDEM.filter(id => statusAula(id) === 'andamento' && ![tecnica, exercicio, '1-1'].includes(id));
       emAndamento.sort((x, y) => this.ultimaSessao(y).localeCompare(this.ultimaSessao(x)));
-      // rubato: a partir do módulo 4, rodízio dos três exercícios (o menos recente primeiro)
-      const rubs = (C.aulasRubato || []).map(a => a.id).sort((x, y) => this.ultimaSessao(x).localeCompare(this.ultimaSessao(y)));
+      // ---- o que entra no dia depende do nível, na ordem de ensino de Chopin (curriculo.RECEITAS)
       const modAtualN = AULAS.get(exercicio).modulo;
-      // peça/aula extra: a aula seguinte à do dia
-      const extra2 = ordem.find(id => !feita(id) && id !== exercicio && id !== tecnica && !aulaTrancada(id)) || null;
-      // ---- distribuição do tempo do dia por prioridade
+      const nivelN = provaAgora || nivelDaAula(exercicio) || 1;
+      this.nivelPlano = nivelN;
       const T = this.limite;
-      const blocos = [
+      // rodízio: aulas já feitas ou de módulos anteriores, a menos recente primeiro
+      const rod = ids => ids.filter(id => AULAS.has(id) && !aulaTrancada(id) && id !== exercicio && id !== tecnica && (feita(id) || AULAS.get(id).modulo < modAtualN))
+        .sort((x, y) => this.ultimaSessao(x).localeCompare(this.ultimaSessao(y)) || ORDEM.indexOf(x) - ORDEM.indexOf(y));
+      const pool = pred => rod(ORDEM.filter(id => pred(AULAS.get(id))));
+      // técnica por nível (quando o nível 1 já acabou): escalas; tonalidades; cromática/terças/oitavas; um Estudo
+      if (!tecnica || nivelN >= 2) {
+        const mods = nivelN <= 2 ? [1, 2] : nivelN === 3 ? [1, 2, 8, 9] : nivelN === 4 ? [8, 9, 12, 14] : [12, 16];
+        const cand = pool(a => mods.includes(a.modulo) && (a.tipo === 'pratica' || a.modulo === 16) && a.id !== '1-1' && !/^Leitura/.test(a.titulo));
+        if (nivelN >= 3) { // nas tonalidades, prefere o módulo mais recente (as escalas do nível 1 só quando já rodou tudo)
+          cand.sort((x, y) => this.ultimaSessao(x).localeCompare(this.ultimaSessao(y)) || AULAS.get(y).modulo - AULAS.get(x).modulo);
+        }
+        if (!tecnica || cand.length) tecnica = cand[0] || tecnica || '2-1';
+      }
+      const bach = pool(a => [5, 7].includes(a.modulo));
+      if (nivelN >= 3) bach.sort((x, y) => this.ultimaSessao(x).localeCompare(this.ultimaSessao(y)) || AULAS.get(y).modulo - AULAS.get(x).modulo || ORDEM.indexOf(x) - ORDEM.indexOf(y)); // do nível 3 em diante, as peças de Bach e Field na frente dos trechos do Minueto
+      const maestro = pool(a => ['4-1', '4-2', '4-4'].includes(a.id));
+      const pedal = pool(a => a.id === '4-3' || a.modulo === 13);
+      const leitura = pool(a => /^Leitura/.test(a.titulo));
+      const rubs = (C.aulasRubato || []).map(a => a.id).filter(id => !aulaTrancada(id)).sort((x, y) => this.ultimaSessao(x).localeCompare(this.ultimaSessao(y)));
+      const extra2 = ordem.find(id => !feita(id) && id !== exercicio && id !== tecnica && !aulaTrancada(id)) || null;
+      const aulaB = (id, titulo, peso, min, max) => id ? { tipo: 'aula', aula: id, titulo, sub: AULAS.get(id).titulo, peso, min, max } : null;
+      const ouvB = (bloco, titulo, sub, fixo) => OUV ? { tipo: 'ouvido', bloco, titulo, sub, fixo } : null;
+      const cantar = fixo => ouvB('cantar', 'Cantar', 'Afinar com a voz: a frase antes do dedo', fixo);
+      const tirar = () => ouvB('tirar', 'Tirar de ouvido', 'Uma frase da peça, sem partitura', 6);
+      const ditado = () => ouvB('ditado', 'Ditado', 'Ouvir e tocar de volta', 5);
+      const intervalos = () => ouvB('intervalos', 'Intervalos', 'Achar a segunda nota', 4);
+      const ouvir = { tipo: 'ouvir', modulo: modEx, titulo: 'Ouvir e cantar', sub: modEx && modEx.ouvir ? modEx.ouvir.rotulo : 'A gravação do módulo', fixo: 5 };
+      const revisao = () => emAndamento[0] && T >= 30 ? aulaB(emAndamento[0], 'Revisão', 2, 5, 15) : null;
+      const segunda = () => extra2 && T >= 90 ? aulaB(extra2, 'Segunda aula', 2, 10, 20) : null;
+      const rubato = (peso, tMin) => rubs.length && T >= tMin ? aulaB(rubs[0], 'Rubato', peso, 5, 12) : null;
+      const cabeca = [
         { tipo: 'corpo', aula: '1-1', titulo: 'Corpo', sub: 'Soltar ombros, braço e pulso', fixo: T < 30 ? 3 : 5 },
         { tipo: 'aula', aula: tecnica, titulo: 'Técnica', sub: AULAS.get(tecnica).titulo, peso: 3, min: T < 30 ? 4 : 5, max: 25 },
         provaAgora ? { tipo: 'prova', nivel: provaAgora, titulo: 'Prova de nível', sub: provaDe(provaAgora).titulo, fixo: 15 }
-          : { tipo: 'aula', aula: exercicio, titulo: 'Exercício ou peça', sub: AULAS.get(exercicio).titulo, peso: 4, min: T < 30 ? 6 : 10, max: 30 },
-        rubs.length && modAtualN >= 10 && T >= 45 ? { tipo: 'aula', aula: rubs[0], titulo: 'Rubato', sub: AULAS.get(rubs[0]).titulo, peso: 1.5, min: 5, max: 12 } : null,
-        OUV && T >= 40 ? { tipo: 'ouvido', bloco: 'cantar', titulo: 'Cantar', sub: 'Afinar com a voz: a frase antes do dedo', fixo: 4 } : null,
-        { tipo: 'ouvir', modulo: modEx, titulo: 'Ouvir e cantar', sub: modEx && modEx.ouvir ? modEx.ouvir.rotulo : 'A gravação do módulo', fixo: 5 },
-        OUV && T >= 60 ? { tipo: 'ouvido', bloco: 'tirar', titulo: 'Tirar de ouvido', sub: 'Uma frase da peça, sem partitura', fixo: 6 } : null,
-        OUV && T >= 90 ? { tipo: 'ouvido', bloco: 'ditado', titulo: 'Ditado', sub: 'Ouvir e tocar de volta', fixo: 5 } : null,
-        OUV && T >= 90 ? { tipo: 'ouvido', bloco: 'intervalos', titulo: 'Intervalos', sub: 'Achar a segunda nota', fixo: 4 } : null,
-        emAndamento[0] && T >= 30 ? { tipo: 'aula', aula: emAndamento[0], titulo: 'Revisão', sub: AULAS.get(emAndamento[0]).titulo, peso: 2, min: 5, max: 15 } : null,
-        extra2 && T >= 90 ? { tipo: 'aula', aula: extra2, titulo: 'Segunda aula', sub: AULAS.get(extra2).titulo, peso: 2, min: 10, max: 20 } : null,
-      ].filter(Boolean);
+          : { tipo: 'aula', aula: exercicio, titulo: 'Exercício ou peça', sub: AULAS.get(exercicio).titulo, peso: 4, min: T < 30 ? 6 : 10, max: nivelN >= 5 ? 40 : 30 },
+      ];
+      const porNivel = {
+        1: [T >= 40 ? cantar(4) : null, ouvir, T >= 60 ? intervalos() : null, T >= 90 ? ditado() : null, revisao(), segunda()],
+        2: [T >= 45 ? aulaB(maestro[0], 'Esquerda maestro', 1.5, 4, 10) : null, T >= 45 ? aulaB(bach[0], 'Bach de cada dia', 1.5, 5, 12) : null,
+            T >= 30 ? cantar(5) : null, T >= 60 && leitura[0] ? { tipo: 'aula', aula: leitura[0], titulo: 'Leitura', sub: AULAS.get(leitura[0]).titulo, fixo: 4 } : null,
+            ouvir, T >= 60 ? tirar() : null, T >= 90 ? ditado() : null, T >= 90 ? intervalos() : null, revisao(), segunda()],
+        3: [T >= 45 ? aulaB(bach[0], 'Bach e Field', 1.5, 5, 12) : null,
+            modAtualN >= 10 ? rubato(1.5, 45) : (T >= 60 ? aulaB(maestro[0], 'Esquerda maestro', 1, 4, 8) : null),
+            T >= 40 ? cantar(4) : null, T >= 60 && leitura[0] ? { tipo: 'aula', aula: leitura[0], titulo: 'Leitura', sub: AULAS.get(leitura[0]).titulo, fixo: 4 } : null,
+            ouvir, T >= 45 ? tirar() : null, T >= 75 ? ditado() : null, T >= 90 ? intervalos() : null, revisao(), segunda()],
+        4: [rubato(1.5, 40), T >= 60 ? aulaB(pedal[0], 'Pedal como cor', 1, 4, 10) : null, T >= 60 ? aulaB(bach[0], 'Bach e Field', 1, 5, 10) : null,
+            T >= 40 ? cantar(4) : null, T >= 75 && leitura[0] ? { tipo: 'aula', aula: leitura[0], titulo: 'Leitura', sub: AULAS.get(leitura[0]).titulo, fixo: 4 } : null,
+            ouvir, T >= 45 ? tirar() : null, T >= 75 ? ditado() : null, T >= 90 ? intervalos() : null, revisao(), segunda()],
+        5: [rubato(1, 45), T >= 60 ? aulaB(bach[0], 'Bach', 1, 5, 10) : null, T >= 75 ? aulaB(pedal[0], 'Pedal', 1, 4, 10) : null,
+            T >= 45 ? cantar(4) : null, ouvir, T >= 60 ? tirar() : null, T >= 90 ? ditado() : null, T >= 105 ? intervalos() : null, revisao(), segunda()],
+      };
+      const blocos = [...cabeca, ...(porNivel[nivelN] || porNivel[1])].filter(Boolean);
       const fixos = blocos.reduce((s, b) => s + (b.fixo || 0), 0);
       let resto = Math.max(0, T - fixos);
       const flex = blocos.filter(b => b.peso);
@@ -2861,6 +2899,7 @@
         <div class="hoje-tempo"><div class="barra-prog" aria-hidden="true"><div style="width:${Math.min(100, Math.round(100 * min / Jornada.limite))}%"></div></div><span class="mono">${Math.round(min)} de ${Jornada.limite} min</span>
           <label class="tempo-dia" title="Quanto tempo você quer treinar hoje; a jornada se divide por prioridade">Tempo do dia <select id="minutos-dia">${[20, 30, 45, 60, 75, 90, 105, 120].map(v => `<option value="${v}" ${v === Jornada.limite ? 'selected' : ''}>${v} min</option>`).join('')}</select></label></div>
         <ol class="passos-dia">${plano.map((p, i) => `<li class="${i === j.passo ? 'atual' : ''} ${Jornada.feito(i) ? 'feito' : ''}"><span class="n">${i + 1}</span><span><b>${esc(p.titulo)}</b><small>${p.min} min</small></span></li>`).join('')}</ol>
+        ${(() => { const rc = (C.receitas || []).find(r => r.n === Jornada.nivelPlano); return rc ? `<details class="receita"><summary><span class="rotulo">Como Chopin ensinava no nível ${rc.n}</span> <b>${esc(rc.titulo)}</b></summary><p class="texto">${esc(rc.texto)}</p>${blocoNarracao('receita-' + rc.n, 'A prática deste nível', rc.narracao)}</details>` : ''; })()}
       </div>`;
     if (Jornada.bloqueado()) {
       el.innerHTML = `<div style="display:grid;gap:22px">${barra}
@@ -3530,7 +3569,7 @@
   }
 
   /* ------------------------------------------------------------ início */
-  window.__curso = { avaliar, Midi, Nuvem, estado, lerMidi, planoMusica, configPadrao, aulaDaEtapa, Guia, Jornada, provaDe, provaPassada, marcarItemProva, Ouvido, Som, Voz, get player() { return playerAtual; } };
+  window.__curso = { avaliar, Midi, Nuvem, estado, lerMidi, planoMusica, configPadrao, aulaDaEtapa, abrirPeca, statusAula, Guia, Jornada, provaDe, provaPassada, marcarItemProva, Ouvido, Som, Voz, get player() { return playerAtual; } };
   if ('speechSynthesis' in window) { try { speechSynthesis.getVoices(); speechSynthesis.onvoiceschanged = () => {}; } catch (e) { /* nada */ } }
   if ('serviceWorker' in navigator && location.protocol === 'https:') { try { navigator.serviceWorker.register('sw.js').catch(() => {}); } catch (e) { /* nada */ } }
   const sair = $('#guiado-sair'); if (sair) sair.addEventListener('click', () => { Fluxo.parar(); if (playerAtual && playerAtual.tocando) playerAtual.parar(); rolar($('.topo'), 'start'); });
