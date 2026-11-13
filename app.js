@@ -338,6 +338,38 @@
       g.gain.setTargetAtTime(0.0001, fim, 0.05);
       o1.start(quando); o2.start(quando); o1.stop(fim + 0.4); o2.stop(fim + 0.4);
     },
+    // notas cantadas por voz humana (audio/voz/<midi>.mp3, 48 a 79; NSynth, CC BY 4.0), para ouvir e cantar junto
+    vozes: new Map(),
+    carregarVoz(m) {
+      if (!this.vozes.has(m)) this.vozes.set(m, fetch('audio/voz/' + m + '.mp3').then(r => { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); }).then(b => this.ctx.decodeAudioData(b)).catch(() => null));
+      return this.vozes.get(m);
+    },
+    voz(buf, quando, dur, v = 0.9) {
+      const ctx = this.ctx; if (!ctx || !buf) return;
+      const src = ctx.createBufferSource(); src.buffer = buf;
+      const g = ctx.createGain();
+      // nota longa: segura a vogal (repete o trecho estável do arquivo) até o fim da nota
+      const fim = quando + Math.max(0.25, dur);
+      if (dur > buf.duration - 0.1) { src.loop = true; src.loopStart = Math.min(0.3, buf.duration * 0.35); src.loopEnd = Math.min(0.78, buf.duration * 0.82); }
+      g.gain.setValueAtTime(v, quando); g.gain.setValueAtTime(v, Math.max(quando, fim - 0.12)); g.gain.linearRampToValueAtTime(0.0001, fim);
+      src.connect(g); g.connect(this.mestre); src.start(quando); src.stop(fim + 0.05);
+    },
+    // canta uma sequência {m, t, d, v} (t e d em batidas) com o piano por baixo; devolve a duração em ms
+    async cantar(notas, bpm, opts = {}) {
+      const ctx = this.iniciar(); if (!ctx) return 0;
+      const seg = 60 / bpm;
+      const lista = notas.filter(n => n.m >= 48 && n.m <= 79);
+      const bufs = await Promise.all(lista.map(n => this.carregarVoz(n.m)));
+      await this.pronto(1500);
+      const t0 = ctx.currentTime + 0.1; let fim = 0;
+      lista.forEach((n, i) => {
+        const q = t0 + n.t * seg, d = n.d * seg;
+        this.voz(bufs[i], q, d * 0.98, 0.55 + 0.45 * (n.v ?? 0.7));
+        if (opts.piano !== false) this.nota(n.m, q, d * 0.95, Math.min(0.55, (n.v ?? 0.7) * 0.75));
+        fim = Math.max(fim, (n.t + n.d) * seg);
+      });
+      return fim * 1000 + 200;
+    },
     clique(quando, forte) {
       const ctx = this.ctx; if (!ctx) return;
       const o = ctx.createOscillator(); const g = ctx.createGain();
@@ -1861,6 +1893,7 @@
           <label class="chk" title="Explica, demonstra, entra em Praticar e avança sozinho"><input type="checkbox" id="fluxo-chk" ${p.fluxo !== false ? 'checked' : ''}> Automático</label>
           <label class="chk" title="Avisos falados do treinador a cada erro (o texto continua aparecendo)"><input type="checkbox" id="voz-chk" ${p.treinadorVoz !== false ? 'checked' : ''}> Voz do treinador</label>
           <label class="chk" title="Enquanto você toca, esconde o resto da tela e deixa só o teclado, as mãos e o treinador"><input type="checkbox" id="foco-chk" ${p.foco !== false ? 'checked' : ''}> Foco ao tocar</label>
+          ${a.cantavel ? '<button type="button" class="btn cantado-btn" id="cantado-btn" title="Uma voz humana canta a melodia da mão direita junto com o piano: ouça a frase e cante com ela">🎤 Ouvir cantado</button>' : ''}
           <span class="som-estado" title="Amostras do Salamander Grand Piano (Yamaha C5). Se aparecer “sintetizado”, recarregue a página com internet.">Som: ${Som.descricao}</span>
         </div>
         <div class="palco"><canvas aria-label="Teclado animado: as notas descem até as teclas que você deve apertar"></canvas></div>
@@ -1909,6 +1942,14 @@
       p[chave] = +e.target.value; salvar();
       $('#tempo-txt').textContent = `♩ = ${Math.round(a.bpm * p[chave])}`;
       pl.reancorar();
+    });
+    const cb = $('#cantado-btn');
+    if (cb) cb.addEventListener('click', async () => {
+      if (pl.tocando) pl.parar();
+      cb.disabled = true; cb.textContent = '🎤 Cantando…';
+      const ns = a.notas.filter(n => n.h !== 'E' && !n.silencio).map(n => ({ m: n.m, t: n.t, d: n.d, v: n.v }));
+      const ms = await Som.cantar(ns, Math.round(a.bpm * 0.8));
+      setTimeout(() => { cb.disabled = false; cb.textContent = '🎤 Ouvir cantado'; }, ms);
     });
     $('#metronomo').addEventListener('change', e => {
       p.metronomo = e.target.checked; salvar();
@@ -3492,6 +3533,19 @@
         if (est) { ctx.fillStyle = css('--stage-text'); ctx.font = '12px system-ui, sans-serif'; ctx.textAlign = 'left'; ctx.fillText(est, 10, 18); }
       };
       desenhar(null, null, 'Toque em Começar e permita o microfone.');
+      if (b.como) {
+        const card = document.createElement('div'); card.className = 'peca-box como-cantar';
+        card.innerHTML = `<div class="peca-info"><span class="rotulo">O que é cantar no piano</span><p class="texto">${esc(b.como)}</p>
+          ${blocoNarracao('ouvido-cantar-como', 'O que é cantar no piano, em áudio', b.comoNarracao || '')}
+          <div class="linha-botoes"><button class="btn primario" type="button" id="cantar-exemplo">🎤 Ouvir a melodia da aula 3.1 cantada, com o piano</button><a class="btn" href="#aula-3-1">Abrir a aula 3.1</a></div></div>`;
+        const painel = $('#ouvido-painel'); painel.parentElement.insertBefore(card, painel);
+        $('#cantar-exemplo').addEventListener('click', async () => {
+          const ex = AULAS.get('3-1'); const btn = $('#cantar-exemplo'); if (!ex || !btn) return;
+          btn.disabled = true; btn.textContent = '🎤 Cantando… cante junto';
+          const ms = await Som.cantar(ex.notas.filter(n => n.h !== 'E').map(n => ({ m: n.m, t: n.t, d: n.d, v: n.v })), Math.round(ex.bpm * 0.8));
+          setTimeout(() => { btn.disabled = false; btn.textContent = '🎤 Ouvir a melodia da aula 3.1 cantada, com o piano'; }, ms);
+        });
+      }
       const tocarAlvo = () => { if (!item) return; tocarSequencia(item.notas.map((m, i) => ({ m, t: i * 1.1, d: 1 })), 60, 0.7); };
       // segmentação: nota estável = 350 ms dentro de ±45 cents; nova nota quando muda ≥ 60 cents ou depois de silêncio
       const ouvirVoz = (midiF, rms) => {
@@ -3521,7 +3575,7 @@
         const descr = alvos.map((m, i) => `${NOMES[m % 12]}${certas[i] ? ' ✓' : ` (${difs[i] > 0 ? 'alto' : 'baixo'} ${Math.round(Math.abs(difs[i]) * 100)} c)`}`).join(' · ');
         dizer(ok ? `<b>Afinou.</b> ${descr}` : `<b>Quase.</b> ${descr}. Ouça de novo e cante mais ${difs.find(d => Math.abs(d) > 0.5) > 0 ? 'baixo' : 'alto'}.`, ok ? 'ok' : 'erro');
         if (ok) falar(['bem']);
-        botoes([['proxima', ok ? 'Próxima →' : 'Tentar de novo', true], ['ouvir', '▶ Ouvir o alvo'], ['pular', 'Pular'], ['parar', 'Parar']]);
+        botoes([['proxima', ok ? 'Próxima →' : 'Tentar de novo', true], ['ouvir', '▶ Ouvir o alvo'], ['cantado', '🎤 Ouvir cantado'], ['pular', 'Pular'], ['parar', 'Parar']]);
         if (ok) setTimeout(() => { if (!destruido && estadoVoz === 'avaliando') nova(); }, 2200);
       };
       const nova = () => {
@@ -3535,7 +3589,7 @@
         item = { notas }; notasCantadas = []; atualNota = null; estadoVoz = 'ouvindo';
         rot.textContent = `${k + 1} de ${TOTAL} · ${n === 1 ? 'uma nota' : n === 2 ? 'dois sons' : 'frase de ' + notas.length + ' notas'}`;
         dizer(`Ouça${n === 1 ? ' a nota' : n === 2 ? ' os dois sons' : ' a frase'} e cante${n > 1 ? ', uma nota depois da outra, segurando cada uma' : ' em qualquer oitava, segurando até ficar verde'}.`);
-        botoes([['ouvir', '▶ Ouvir de novo'], ['pular', 'Pular'], ['parar', 'Parar']]);
+        botoes([['ouvir', '▶ Ouvir de novo'], ['cantado', '🎤 Ouvir cantado'], ['pular', 'Pular'], ['parar', 'Parar']]);
         tocarAlvo();
       };
       const terminar = () => {
@@ -3556,7 +3610,8 @@
         const b = e.target.closest('[data-ouv]'); if (!b) return; const q = b.dataset.ouv;
         if (q === 'comecar') comecar();
         if (q === 'ouvir') tocarAlvo();
-        if (q === 'proxima') { if (msg.dataset.tipo === 'ok') nova(); else { k = Math.max(0, k - 1); notasCantadas = []; atualNota = null; estadoVoz = 'ouvindo'; dizer('Mais uma vez: ouça e cante, segurando cada nota.'); tocarAlvo(); botoes([['ouvir', '▶ Ouvir de novo'], ['pular', 'Pular'], ['parar', 'Parar']]); } }
+        if (q === 'cantado' && item) Som.cantar(item.notas.map((m, i) => ({ m, t: i * 1.2, d: 1, v: 0.7 })), 60);
+        if (q === 'proxima') { if (msg.dataset.tipo === 'ok') nova(); else { k = Math.max(0, k - 1); notasCantadas = []; atualNota = null; estadoVoz = 'ouvindo'; dizer('Mais uma vez: ouça e cante, segurando cada nota.'); tocarAlvo(); botoes([['ouvir', '▶ Ouvir de novo'], ['cantado', '🎤 Ouvir cantado'], ['pular', 'Pular'], ['parar', 'Parar']]); } }
         if (q === 'pular') { k++; nova(); }
         if (q === 'parar') terminar();
         if (q === 'voltar') location.hash = 'ouvido';

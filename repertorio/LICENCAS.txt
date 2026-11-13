@@ -113,3 +113,5 @@ atribuição ao Mutopia Project e aos seus editores; as CC BY-SA exigem que deri
     licença: Domínio público
 
 Som do piano: Salamander Grand Piano (Yamaha C5), de Alexander Holm, CC BY 3.0 — ver site/audio/piano/LICENCA.txt.
+
+Notas cantadas (site/audio/voz): NSynth Dataset, Google Magenta, família vocal_acoustic. Creative Commons Attribution 4.0. Engel et al. 2017, https://magenta.tensorflow.org/datasets/nsynth
