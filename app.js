@@ -744,7 +744,7 @@
       ctx.strokeStyle = cor.borda; ctx.lineWidth = 1;
       ctx.strokeRect(p.x + 0.5, y, p.w - 1, h);
       if (mk && mk.contorno) { ctx.strokeStyle = mk.contorno; ctx.lineWidth = 3; ctx.strokeRect(p.x + 2, y + 2, p.w - 4, h - 4); }
-      const rot = (mk && mk.rotulo) || (m % 12 === 0 ? nomeMidi(m) : (opts.nomes ? NOMES[m % 12] : ''));
+      const rot = (mk && mk.rotulo) || (m % 12 === 0 ? nomeMidi(m) : (opts.nomes ? (opts.tabela || NOMES)[m % 12] : ''));
       if (rot && p.w > 18) {
         ctx.fillStyle = mk && mk.textoCor ? mk.textoCor : '#5b5f6a';
         ctx.font = `600 ${Math.min(13, p.w * 0.36)}px ${css('--font-body')}`;
@@ -760,7 +760,7 @@
       const bh = h * 0.62;
       ctx.beginPath(); ctx.roundRect ? ctx.roundRect(p.x, y, p.w, bh, [0, 0, 3, 3]) : ctx.rect(p.x, y, p.w, bh); ctx.fill();
       if (mk && mk.contorno) { ctx.strokeStyle = mk.contorno; ctx.lineWidth = 3; ctx.strokeRect(p.x + 1.5, y + 1.5, p.w - 3, bh - 3); }
-      const rot = (mk && mk.rotulo) || (opts.nomes ? NOMES[m % 12] : '');
+      const rot = (mk && mk.rotulo) || (opts.nomes ? (opts.tabela || NOMES)[m % 12] : '');
       if (rot && p.w > 14) {
         ctx.fillStyle = mk ? (mk.textoCor || '#fff') : '#c8ccd6';
         ctx.font = `600 ${Math.min(11, p.w * 0.4)}px ${css('--font-body')}`;
@@ -1024,7 +1024,11 @@
       const ativas = this.ativas.length ? this.ativas : this.aula.notas;
       this.inicio = Math.min(...ativas.map(n => n.t));
       this.fim = Math.max(...ativas.map(n => n.t + n.d));
-      [this.lo, this.hi] = faixa(this.aula.notas);
+      // o teclado abrange só a mão escolhida: numa mão só, as teclas ficam maiores
+      [this.lo, this.hi] = faixa(ativas);
+      // janela de queda: aulas com muitas notas curtas (semicolcheias) descem mais devagar na tela, para as notas não se empilharem
+      const ds = ativas.map(n => n.d).sort((a, b) => a - b), q = ds[Math.floor(ds.length * 0.25)] || 1;
+      this.janela = q <= 0.25 ? 3.5 : q <= 0.5 ? 4.25 : 5;
       const grupos = new Map();
       for (const n of ativas) {
         const k = n.t.toFixed(3);
@@ -1374,7 +1378,7 @@
     desenhar() {
       const { ctx, w, h } = prepararCanvas(this.cv);
       const kh = Math.min(120, h * 0.24), ky = h - kh;
-      const janela = 5, ppb = (ky - 8) / janela;
+      const janela = this.janela || 5, ppb = (ky - 8) / janela;
       const geo = geometria(this.lo, this.hi, w);
       const corD = css('--rh'), corE = css('--lh'), linha = css('--stage-line'), textoPalco = css('--stage-text');
       ctx.fillStyle = css('--stage'); ctx.fillRect(0, 0, w, h);
@@ -1422,7 +1426,7 @@
           ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
           if (n.f) { ctx.font = `700 ${clamp(ww * 0.55, 10, 16)}px ${css('--font-mono')}`; ctx.fillText(String(n.f), x + ww / 2, base - 10); }
           else { ctx.font = `700 ${clamp(ww * 0.34, 8, 12)}px ${css('--font-body')}`; ctx.fillText(rotuloNota(n), x + ww / 2, base - 10); }
-          if (n.f && estado.prefs.nomes && base - topo > 40) {
+          if (n.f && estado.prefs.nomes && base - topo > 30) {
             ctx.font = `600 ${clamp(ww * 0.3, 9, 12)}px ${css('--font-body')}`;
             ctx.fillText(rotuloNota(n), x + ww / 2, base - 28);
           }
@@ -1489,7 +1493,8 @@
       }
       // linha de toque
       ctx.fillStyle = 'rgba(255,255,255,0.12)'; ctx.fillRect(0, ky - 3, w, 3);
-      desenharTeclado(ctx, geo, this.lo, this.hi, ky, kh, marcas, { nomes: estado.prefs.nomes });
+      // nas peças em bemóis (Mi bemol, Fá maior...), as teclas pretas recebem o nome em bemol, igual ao das notas que caem
+      desenharTeclado(ctx, geo, this.lo, this.hi, ky, kh, marcas, { nomes: estado.prefs.nomes, tabela: this.aula.notas.some(n => /♭/.test(n.n || '')) ? NOMES_BEMOL : NOMES });
       // contagem
       if (this.tocando && this.batida < this.inicio) {
         const falta = Math.ceil(this.inicio - this.batida - 1e-6);
@@ -1882,7 +1887,8 @@
           <span class="som-estado" title="Amostras do Salamander Grand Piano (Yamaha C5). Se aparecer “sintetizado”, recarregue a página com internet.">Som: ${Som.descricao}</span>
         </div>
         <div class="palco"><canvas aria-label="Teclado animado: as notas descem até as teclas que você deve apertar"></canvas></div>
-        <div class="treinador" id="treinador"><div class="tr-msg" id="tr-msg" aria-live="assertive">O treinador avisa na hora: tecla errada, nota atrasada ou apressada.</div><div class="tr-barras" id="tr-barras" aria-label="Últimas notas: altura da barra = quanto o tempo variou"></div></div>
+        <div class="treinador" id="treinador"><div class="tr-msg" id="tr-msg" aria-live="assertive">O treinador avisa na hora: tecla errada, nota atrasada ou apressada.</div><div class="tr-barras" id="tr-barras" aria-label="Últimas notas: altura da barra = quanto o tempo variou"></div>
+          <div class="tr-atalhos"><button type="button" class="chip-btn" data-atalho="voz" aria-pressed="${p.treinadorVoz !== false}" title="Liga ou desliga os avisos falados do treinador (o texto continua aparecendo)">${p.treinadorVoz !== false ? '🔊' : '🔇'} Voz do treinador</button><button type="button" class="chip-btn" data-atalho="nomes" aria-pressed="${!!p.nomes}" title="Mostra o nome das notas nas teclas e nas notas que caem">♪ Nomes das notas</button></div></div>
         <div class="maos">${maoSVG('E')}<p class="legenda-mao" aria-live="polite"></p>${maoSVG('D')}</div>
         ${window.Partitura && window.Partitura.disponivel() && a.notas.length ? `<div class="partitura" id="partitura" ${p.partitura ? '' : 'hidden'} aria-label="Partitura do exercício"></div>` : ''}
         <div class="transporte">
@@ -1932,9 +1938,22 @@
       p.metronomo = e.target.checked; salvar();
       if (pl.tocando && pl.modo === 'praticar') { if (p.metronomo) Player.metronomoLivre(pl.bpm * pl.fator, pl.compasso, Som.ctx.currentTime + 0.05); else Player.metro && Player.metro.parar(); }
     });
-    $('#nomes').addEventListener('change', e => { p.nomes = e.target.checked; salvar(); pl.desenhar(); });
+    $('#nomes').addEventListener('change', e => { p.nomes = e.target.checked; salvar(); pl.desenhar(); sincronizarAtalhos(); });
     $('#repetir').addEventListener('change', e => { p.repetir = e.target.checked; salvar(); });
-    const vozChk = $('#voz-chk'); if (vozChk) vozChk.addEventListener('change', e => { p.treinadorVoz = e.target.checked; salvar(); });
+    const vozChk = $('#voz-chk'); if (vozChk) vozChk.addEventListener('change', e => { p.treinadorVoz = e.target.checked; salvar(); sincronizarAtalhos(); });
+    // atalhos na barra do treinador: os mesmos ajustes, à mão enquanto se toca
+    function sincronizarAtalhos() {
+      const bv = $('[data-atalho="voz"]', raiz), bn = $('[data-atalho="nomes"]', raiz);
+      if (bv) { bv.setAttribute('aria-pressed', String(p.treinadorVoz !== false)); bv.textContent = (p.treinadorVoz !== false ? '🔊' : '🔇') + ' Voz do treinador'; }
+      if (bn) bn.setAttribute('aria-pressed', String(!!p.nomes));
+      if (vozChk) vozChk.checked = p.treinadorVoz !== false;
+      const nomesChk = $('#nomes', raiz); if (nomesChk) nomesChk.checked = !!p.nomes;
+    }
+    $$('[data-atalho]', raiz).forEach(b => b.addEventListener('click', () => {
+      if (b.dataset.atalho === 'voz') { p.treinadorVoz = p.treinadorVoz === false; if (!p.treinadorVoz) { Guia.cancelado = true; Narr.parar(); } }
+      if (b.dataset.atalho === 'nomes') { p.nomes = !p.nomes; pl.desenhar(); }
+      salvar(); sincronizarAtalhos();
+    }));
     const focoChk = $('#foco-chk'); if (focoChk) focoChk.addEventListener('change', e => { p.foco = e.target.checked; salvar(); pl.aplicarFoco(); });
     const fluxoChk = $('#fluxo-chk');
     if (fluxoChk) fluxoChk.addEventListener('change', e => { p.fluxo = e.target.checked; salvar(); if (!p.fluxo) Fluxo.parar(); else Fluxo.quandoPuder(() => Fluxo.pratica(a, pl, opts.aoPassar)); });

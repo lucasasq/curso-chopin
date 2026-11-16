@@ -290,6 +290,9 @@ body.foco .transporte::after { content: "Modo foco: a tela volta ao normal quand
 .tr-msg.pisca { animation: tr-pisca 0.5s ease-out; }
 @keyframes tr-pisca { 0% { transform: translateX(-4px); } 30% { transform: translateX(4px); } 100% { transform: none; } }
 .tr-barras { display: flex; align-items: flex-end; gap: 3px; height: 42px; }
+.tr-atalhos { grid-column: 1 / -1; display: flex; gap: 8px; flex-wrap: wrap; }
+.chip-btn { border: 1px solid var(--line); background: var(--surface-2); color: var(--muted); border-radius: 999px; padding: 4px 12px; font-size: 0.8rem; min-height: 32px; cursor: pointer; }
+.chip-btn[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .tr-barras i { display: block; width: 7px; border-radius: 2px 2px 0 0; background: var(--ok); }
 .tr-barras i.tarde { background: var(--warn); } .tr-barras i.cedo { background: var(--lh); }
 .linha-tempo { display: grid; gap: 8px; }
@@ -603,12 +606,12 @@ body.guiado .tempo-dia { display: none; }
   </div>
 </main>
 
-<script src="vendor/vexflow.js?v=202611160035"></script>
-<script src="partitura.js?v=202611160035"></script>
-<script src="vendor/supabase.js?v=202611160035"></script>
-<script src="config.js?v=202611160035"></script>
-<script src="dados.js?v=202611160035"></script>
-<script src="app.js?v=202611160035"></script>
+<script src="vendor/vexflow.js?v=202611161038"></script>
+<script src="partitura.js?v=202611161038"></script>
+<script src="vendor/supabase.js?v=202611161038"></script>
+<script src="config.js?v=202611161038"></script>
+<script src="dados.js?v=202611161038"></script>
+<script src="app.js?v=202611161038"></script>
 
 </body>
 </html>
