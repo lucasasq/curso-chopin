@@ -1390,6 +1390,8 @@
       const janela = this.janela || 5, ppb = (ky - 8) / janela;
       const geo = geometria(this.lo, this.hi, w);
       const corD = css('--rh'), corE = css('--lh'), linha = css('--stage-line'), textoPalco = css('--stage-text');
+      const bemois = this.aula.notas.some(n => /♭/.test(n.n || ''));
+      const letras = estado.prefs.letras !== false ? (bemois ? LETRAS_BEMOL : LETRAS) : null;
       ctx.fillStyle = css('--stage'); ctx.fillRect(0, 0, w, h);
       // colunas das teclas pretas, bem discretas
       ctx.fillStyle = 'rgba(255,255,255,0.025)';
@@ -1431,19 +1433,25 @@
         }
         ctx.globalAlpha = fora ? 0.3 : 1;
         const alt = base - topo;
+        const letra = letras ? letras[n.m % 12] : '';
         if (alt <= 18 && ww > 10 && yt > -4) {
           // nota curta (semicolcheia): o rótulo não cabe dentro, então fica logo acima do bloco, na cor da mão
           ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
           ctx.fillStyle = cor; ctx.globalAlpha = fora ? 0.3 : 1;
-          if (n.f) { ctx.font = `700 ${clamp(ww * 0.5, 10, 13)}px ${css('--font-mono')}`; ctx.fillText(String(n.f), x + ww / 2, topo - 3); }
-          else { ctx.font = `700 ${clamp(ww * 0.3, 8, 10)}px ${css('--font-body')}`; ctx.fillText(rotuloNota(n), x + ww / 2, topo - 3); }
+          ctx.font = `700 ${clamp(ww * 0.5, 10, 13)}px ${css('--font-mono')}`;
+          ctx.fillText(letra && n.f ? `${letra}·${n.f}` : letra || (n.f ? String(n.f) : rotuloNota(n)), x + ww / 2, topo - 3);
+        } else if (letra && ww > 12 && yt > -4) {
+          // letra da nota: no topo do bloco quando cabe, senão logo acima dele
+          ctx.textAlign = 'center';
+          if (alt > 30 && !(din && alt <= 44)) { ctx.textBaseline = 'middle'; ctx.fillStyle = '#10121a'; ctx.font = `700 ${clamp(ww * 0.42, 10, 14)}px ${css('--font-mono')}`; ctx.fillText(letra, x + ww / 2, Math.max(topo, 0) + (din ? 24 : 11)); }
+          else { ctx.textBaseline = 'alphabetic'; ctx.fillStyle = cor; ctx.font = `700 ${clamp(ww * 0.45, 10, 13)}px ${css('--font-mono')}`; ctx.fillText(letra, x + ww / 2, topo - 3); }
         }
         if (alt > 18 && ww > 12) {
           ctx.fillStyle = '#10121a';
           ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
           if (n.f) { ctx.font = `700 ${clamp(ww * 0.55, 10, 16)}px ${css('--font-mono')}`; ctx.fillText(String(n.f), x + ww / 2, base - 10); }
           else { ctx.font = `700 ${clamp(ww * 0.34, 8, 12)}px ${css('--font-body')}`; ctx.fillText(rotuloNota(n), x + ww / 2, base - 10); }
-          if (n.f && estado.prefs.nomes && base - topo > 30) {
+          if (n.f && estado.prefs.nomes && !letras && base - topo > 30) {
             ctx.font = `600 ${clamp(ww * 0.3, 9, 12)}px ${css('--font-body')}`;
             ctx.fillText(rotuloNota(n), x + ww / 2, base - 28);
           }
@@ -1511,7 +1519,7 @@
       // linha de toque
       ctx.fillStyle = 'rgba(255,255,255,0.12)'; ctx.fillRect(0, ky - 3, w, 3);
       // nas peças em bemóis (Mi bemol, Fá maior...), as teclas pretas recebem o nome em bemol, igual ao das notas que caem
-      desenharTeclado(ctx, geo, this.lo, this.hi, ky, kh, marcas, { nomes: estado.prefs.nomes, tabela: this.aula.notas.some(n => /♭/.test(n.n || '')) ? NOMES_BEMOL : NOMES });
+      desenharTeclado(ctx, geo, this.lo, this.hi, ky, kh, marcas, { nomes: estado.prefs.nomes, tabela: bemois ? NOMES_BEMOL : NOMES });
       // contagem
       if (this.tocando && this.batida < this.inicio) {
         const falta = Math.ceil(this.inicio - this.batida - 1e-6);
@@ -1896,6 +1904,7 @@
           <label class="campo" for="tempo">Tempo <input id="tempo" type="range" min="${a.chaveTempo ? 0.3 : 0.5}" max="1.25" step="0.05" value="${tv}"> <b id="tempo-txt">♩ = ${Math.round(a.bpm * tv)}</b></label>
           <label class="chk"><input type="checkbox" id="metronomo" ${(a.leitura ? p.metronomoLeitura !== false : p.metronomo) ? 'checked' : ''}> Metrônomo</label>
           <label class="chk"><input type="checkbox" id="nomes" ${p.nomes ? 'checked' : ''}> Nomes das notas</label>
+          <label class="chk" title="A letra da nota (C D E F G A B, com # ou b) no topo de cada nota que cai"><input type="checkbox" id="letras-chk" ${p.letras !== false ? 'checked' : ''}> Letras (C D E)</label>
           <label class="chk"><input type="checkbox" id="repetir" ${p.repetir ? 'checked' : ''}> Repetir</label>
           ${window.Partitura && window.Partitura.disponivel() && a.notas.length ? `<label class="chk"><input type="checkbox" id="partitura-chk" ${p.partitura ? 'checked' : ''}> Partitura</label>` : ''}
           <label class="chk" title="Explica, demonstra, entra em Praticar e avança sozinho"><input type="checkbox" id="fluxo-chk" ${p.fluxo !== false ? 'checked' : ''}> Automático</label>
@@ -1905,7 +1914,7 @@
         </div>
         <div class="palco"><canvas aria-label="Teclado animado: as notas descem até as teclas que você deve apertar"></canvas></div>
         <div class="treinador" id="treinador"><div class="tr-msg" id="tr-msg" aria-live="assertive">O treinador avisa na hora: tecla errada, nota atrasada ou apressada.</div><div class="tr-barras" id="tr-barras" aria-label="Últimas notas: altura da barra = quanto o tempo variou"></div>
-          <div class="tr-atalhos"><button type="button" class="chip-btn" data-atalho="voz" aria-pressed="${p.treinadorVoz !== false}" title="Liga ou desliga os avisos falados do treinador (o texto continua aparecendo)">${p.treinadorVoz !== false ? '🔊' : '🔇'} Voz do treinador</button><button type="button" class="chip-btn" data-atalho="nomes" aria-pressed="${!!p.nomes}" title="Mostra o nome das notas nas teclas e nas notas que caem">♪ Nomes das notas</button><button type="button" class="chip-btn" data-atalho="metronomo" aria-pressed="${a.leitura ? p.metronomoLeitura !== false : !!p.metronomo}" title="Cliques no pulso, com um compasso de contagem antes de começar${a.leitura ? '. Nas leituras à primeira vista vem ligado, porque o teclado animado fica escondido' : ''}">◔ Metrônomo</button></div></div>
+          <div class="tr-atalhos"><button type="button" class="chip-btn" data-atalho="voz" aria-pressed="${p.treinadorVoz !== false}" title="Liga ou desliga os avisos falados do treinador (o texto continua aparecendo)">${p.treinadorVoz !== false ? '🔊' : '🔇'} Voz do treinador</button><button type="button" class="chip-btn" data-atalho="nomes" aria-pressed="${!!p.nomes}" title="Mostra o nome das notas nas teclas e nas notas que caem">♪ Nomes das notas</button><button type="button" class="chip-btn" data-atalho="letras" aria-pressed="${p.letras !== false}" title="A letra da nota (C D E F G A B, com # ou b) no topo de cada nota que cai">A B C Letras</button><button type="button" class="chip-btn" data-atalho="metronomo" aria-pressed="${a.leitura ? p.metronomoLeitura !== false : !!p.metronomo}" title="Cliques no pulso, com um compasso de contagem antes de começar${a.leitura ? '. Nas leituras à primeira vista vem ligado, porque o teclado animado fica escondido' : ''}">◔ Metrônomo</button></div></div>
         <div class="maos">${maoSVG('E')}<p class="legenda-mao" aria-live="polite"></p>${maoSVG('D')}</div>
         ${window.Partitura && window.Partitura.disponivel() && a.notas.length ? `<div class="partitura" id="partitura" ${p.partitura ? '' : 'hidden'} aria-label="Partitura do exercício"></div>` : ''}
         <div class="transporte">
@@ -1960,6 +1969,7 @@
     }
     $('#metronomo').addEventListener('change', e => definirMetronomo(e.target.checked));
     $('#nomes').addEventListener('change', e => { p.nomes = e.target.checked; salvar(); pl.desenhar(); sincronizarAtalhos(); });
+    const letrasChk = $('#letras-chk'); if (letrasChk) letrasChk.addEventListener('change', e => { p.letras = e.target.checked; salvar(); pl.desenhar(); sincronizarAtalhos(); });
     $('#repetir').addEventListener('change', e => { p.repetir = e.target.checked; salvar(); });
     const vozChk = $('#voz-chk'); if (vozChk) vozChk.addEventListener('change', e => { p.treinadorVoz = e.target.checked; salvar(); sincronizarAtalhos(); });
     // atalhos na barra do treinador: os mesmos ajustes, à mão enquanto se toca
@@ -1967,6 +1977,9 @@
       const bv = $('[data-atalho="voz"]', raiz), bn = $('[data-atalho="nomes"]', raiz);
       if (bv) { bv.setAttribute('aria-pressed', String(p.treinadorVoz !== false)); bv.textContent = (p.treinadorVoz !== false ? '🔊' : '🔇') + ' Voz do treinador'; }
       if (bn) bn.setAttribute('aria-pressed', String(!!p.nomes));
+      const bl = $('[data-atalho="letras"]', raiz), lChk = $('#letras-chk', raiz);
+      if (bl) bl.setAttribute('aria-pressed', String(p.letras !== false));
+      if (lChk) lChk.checked = p.letras !== false;
       const bm = $('[data-atalho="metronomo"]', raiz), mChk = $('#metronomo', raiz), mLig = a.leitura ? p.metronomoLeitura !== false : !!p.metronomo;
       if (bm) bm.setAttribute('aria-pressed', String(mLig));
       if (mChk) mChk.checked = mLig;
@@ -1976,6 +1989,7 @@
     $$('[data-atalho]', raiz).forEach(b => b.addEventListener('click', () => {
       if (b.dataset.atalho === 'voz') { p.treinadorVoz = p.treinadorVoz === false; if (!p.treinadorVoz) { Guia.cancelado = true; Narr.parar(); } }
       if (b.dataset.atalho === 'nomes') { p.nomes = !p.nomes; pl.desenhar(); }
+      if (b.dataset.atalho === 'letras') { p.letras = p.letras === false; pl.desenhar(); }
       if (b.dataset.atalho === 'metronomo') { definirMetronomo(!(a.leitura ? p.metronomoLeitura !== false : !!p.metronomo)); return; }
       salvar(); sincronizarAtalhos();
     }));
@@ -2374,6 +2388,7 @@
   /* ------------------------------------------------------------ músicas (MIDI importado pelo aluno) */
   const FAMILIAS_GM = ['Piano', 'Percussão melódica', 'Órgão', 'Violão/guitarra', 'Baixo', 'Cordas', 'Cordas', 'Metais', 'Palhetas', 'Flautas', 'Sintetizador', 'Sintetizador', 'Efeitos', 'Étnico', 'Percussão', 'Efeitos'];
   const NOMES_BEMOL = ['Dó', 'Ré♭', 'Ré', 'Mi♭', 'Mi', 'Fá', 'Sol♭', 'Sol', 'Lá♭', 'Lá', 'Si♭', 'Si'];
+  const LETRAS = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'], LETRAS_BEMOL = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B'];
   const novoId = () => 'm' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   const musicasVisiveis = () => estado.musicas.filter(m => !m.removida);
   const acharMusica = id => estado.musicas.find(m => m.id === id && !m.removida);
