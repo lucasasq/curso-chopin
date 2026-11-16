@@ -750,6 +750,7 @@
         ctx.font = `600 ${Math.min(13, p.w * 0.36)}px ${css('--font-body')}`;
         ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
         ctx.fillText(rot, p.x + p.w / 2, y + h - 8);
+        if (mk && mk.sub && p.w > 22) { ctx.font = `600 ${Math.min(11, p.w * 0.3)}px ${css('--font-body')}`; ctx.fillText(mk.sub, p.x + p.w / 2, y + h - 24); }
       }
       if (m === 60 && !mk) { ctx.fillStyle = '#9aa0ad'; ctx.beginPath(); ctx.arc(p.x + p.w / 2, y + h - 26, 2.5, 0, 7); ctx.fill(); }
     }
@@ -766,6 +767,7 @@
         ctx.font = `600 ${Math.min(11, p.w * 0.4)}px ${css('--font-body')}`;
         ctx.textAlign = 'center';
         ctx.fillText(rot, p.x + p.w / 2, y + bh - 7);
+        if (mk && mk.sub && p.w > 16) { ctx.font = `600 ${Math.min(9, p.w * 0.36)}px ${css('--font-body')}`; ctx.fillText(mk.sub, p.x + p.w / 2, y + bh - 20); }
       }
     }
   }
@@ -1421,7 +1423,15 @@
           ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x, topo, ww, base - topo, 5) : ctx.rect(x, topo, ww, base - topo); ctx.stroke();
         }
         ctx.globalAlpha = fora ? 0.3 : 1;
-        if (base - topo > 18 && ww > 12) {
+        const alt = base - topo;
+        if (alt <= 18 && ww > 10 && yt > -4) {
+          // nota curta (semicolcheia): o rótulo não cabe dentro, então fica logo acima do bloco, na cor da mão
+          ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+          ctx.fillStyle = cor; ctx.globalAlpha = fora ? 0.3 : 1;
+          if (n.f) { ctx.font = `700 ${clamp(ww * 0.5, 10, 13)}px ${css('--font-mono')}`; ctx.fillText(String(n.f), x + ww / 2, topo - 3); }
+          else { ctx.font = `700 ${clamp(ww * 0.3, 8, 10)}px ${css('--font-body')}`; ctx.fillText(rotuloNota(n), x + ww / 2, topo - 3); }
+        }
+        if (alt > 18 && ww > 12) {
           ctx.fillStyle = '#10121a';
           ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
           if (n.f) { ctx.font = `700 ${clamp(ww * 0.55, 10, 16)}px ${css('--font-mono')}`; ctx.fillText(String(n.f), x + ww / 2, base - 10); }
@@ -1441,9 +1451,9 @@
         }
         ctx.globalAlpha = 1;
         // tecla acesa enquanto a nota soa (modo ouvir) ou nota esperada (praticar)
-        if (!fora && this.modo === 'ouvir' && this.batida >= n.t && this.batida < n.t + n.d) marcas.set(n.m, { cor, rotulo: n.f ? String(n.f) : rotuloNota(n), textoCor: '#10121a' });
+        if (!fora && this.modo === 'ouvir' && this.batida >= n.t && this.batida < n.t + n.d) marcas.set(n.m, { cor, rotulo: n.f ? String(n.f) : rotuloNota(n), sub: n.f ? rotuloNota(n) : '', textoCor: '#10121a' });
       }
-      if (evAtual) for (const n of evAtual.notas) if (evAtual.pendentes.has(n.m)) marcas.set(n.m, { cor: (n.h === 'D' ? corD : corE), contorno: '#ffffff', rotulo: n.f ? String(n.f) : rotuloNota(n), textoCor: '#10121a' });
+      if (evAtual) for (const n of evAtual.notas) if (evAtual.pendentes.has(n.m)) marcas.set(n.m, { cor: (n.h === 'D' ? corD : corE), contorno: '#ffffff', rotulo: n.f ? String(n.f) : rotuloNota(n), sub: n.f ? rotuloNota(n) : '', textoCor: '#10121a' });
       if (this.destaque && !this.tocando) for (const [m, d] of this.destaque) marcas.set(m, { cor: d.h === 'D' ? corD : corE, contorno: '#ffffff', rotulo: String(d.f), textoCor: '#10121a' });
       // mãos: quais dedos mostrar agora
       const dedos = [];
