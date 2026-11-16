@@ -1022,6 +1022,13 @@
       Player.metro && Player.metro.parar();
     }
     get ativas() { return this.aula.notas.filter(n => this.maos === 'todas' || n.h === this.maos); }
+    // nas leituras à primeira vista o teclado animado fica escondido: o metrônomo é a única referência de pulso, então vem ligado
+    get metronomoLigado() { return this.aula.leitura ? estado.prefs.metronomoLeitura !== false : !!estado.prefs.metronomo; }
+    ligarMetronomo() {
+      if (!this.metronomoLigado || !Som.ctx) { Player.metro && Player.metro.parar(); return; }
+      // começa já na contagem (um compasso antes), com o tempo forte na barra de compasso
+      Player.metronomoLivre(this.bpm * this.fator, this.compasso, Som.ctx.currentTime + Math.max(0.05, this.tempoDe(this.batida) - agoraS()));
+    }
     prepararNotas() {
       const ativas = this.ativas.length ? this.ativas : this.aula.notas;
       this.inicio = Math.min(...ativas.map(n => n.t));
@@ -1092,7 +1099,7 @@
       this.ultimoQuadro = performance.now();
       if (this.modo === 'praticar') {
         if (!this.sessaoInicio) this.sessaoInicio = Date.now();
-        if (estado.prefs.metronomo) Player.metronomoLivre(this.bpm * this.fator, this.compasso, ctx.currentTime + Math.max(0.05, this.batida < this.inicio ? this.tempoDe(this.inicio) - agoraS() : 0.05));
+        this.ligarMetronomo();
       }
       this.atualizarTransporte();
       this.aplicarFoco();
@@ -1887,7 +1894,7 @@
             <button type="button" data-maos="E" aria-pressed="false">Esquerda</button>
           </div>` : ''}
           <label class="campo" for="tempo">Tempo <input id="tempo" type="range" min="${a.chaveTempo ? 0.3 : 0.5}" max="1.25" step="0.05" value="${tv}"> <b id="tempo-txt">♩ = ${Math.round(a.bpm * tv)}</b></label>
-          <label class="chk"><input type="checkbox" id="metronomo" ${p.metronomo ? 'checked' : ''}> Metrônomo</label>
+          <label class="chk"><input type="checkbox" id="metronomo" ${(a.leitura ? p.metronomoLeitura !== false : p.metronomo) ? 'checked' : ''}> Metrônomo</label>
           <label class="chk"><input type="checkbox" id="nomes" ${p.nomes ? 'checked' : ''}> Nomes das notas</label>
           <label class="chk"><input type="checkbox" id="repetir" ${p.repetir ? 'checked' : ''}> Repetir</label>
           ${window.Partitura && window.Partitura.disponivel() && a.notas.length ? `<label class="chk"><input type="checkbox" id="partitura-chk" ${p.partitura ? 'checked' : ''}> Partitura</label>` : ''}
@@ -1898,7 +1905,7 @@
         </div>
         <div class="palco"><canvas aria-label="Teclado animado: as notas descem até as teclas que você deve apertar"></canvas></div>
         <div class="treinador" id="treinador"><div class="tr-msg" id="tr-msg" aria-live="assertive">O treinador avisa na hora: tecla errada, nota atrasada ou apressada.</div><div class="tr-barras" id="tr-barras" aria-label="Últimas notas: altura da barra = quanto o tempo variou"></div>
-          <div class="tr-atalhos"><button type="button" class="chip-btn" data-atalho="voz" aria-pressed="${p.treinadorVoz !== false}" title="Liga ou desliga os avisos falados do treinador (o texto continua aparecendo)">${p.treinadorVoz !== false ? '🔊' : '🔇'} Voz do treinador</button><button type="button" class="chip-btn" data-atalho="nomes" aria-pressed="${!!p.nomes}" title="Mostra o nome das notas nas teclas e nas notas que caem">♪ Nomes das notas</button></div></div>
+          <div class="tr-atalhos"><button type="button" class="chip-btn" data-atalho="voz" aria-pressed="${p.treinadorVoz !== false}" title="Liga ou desliga os avisos falados do treinador (o texto continua aparecendo)">${p.treinadorVoz !== false ? '🔊' : '🔇'} Voz do treinador</button><button type="button" class="chip-btn" data-atalho="nomes" aria-pressed="${!!p.nomes}" title="Mostra o nome das notas nas teclas e nas notas que caem">♪ Nomes das notas</button><button type="button" class="chip-btn" data-atalho="metronomo" aria-pressed="${a.leitura ? p.metronomoLeitura !== false : !!p.metronomo}" title="Cliques no pulso, com um compasso de contagem antes de começar${a.leitura ? '. Nas leituras à primeira vista vem ligado, porque o teclado animado fica escondido' : ''}">◔ Metrônomo</button></div></div>
         <div class="maos">${maoSVG('E')}<p class="legenda-mao" aria-live="polite"></p>${maoSVG('D')}</div>
         ${window.Partitura && window.Partitura.disponivel() && a.notas.length ? `<div class="partitura" id="partitura" ${p.partitura ? '' : 'hidden'} aria-label="Partitura do exercício"></div>` : ''}
         <div class="transporte">
@@ -1944,10 +1951,13 @@
       $('#tempo-txt').textContent = `♩ = ${Math.round(a.bpm * p[chave])}`;
       pl.reancorar();
     });
-    $('#metronomo').addEventListener('change', e => {
-      p.metronomo = e.target.checked; salvar();
-      if (pl.tocando && pl.modo === 'praticar') { if (p.metronomo) Player.metronomoLivre(pl.bpm * pl.fator, pl.compasso, Som.ctx.currentTime + 0.05); else Player.metro && Player.metro.parar(); }
-    });
+    function definirMetronomo(ligado) {
+      if (a.leitura) p.metronomoLeitura = ligado; else p.metronomo = ligado;
+      salvar();
+      if (pl.tocando && pl.modo === 'praticar') { if (ligado) Player.metronomoLivre(pl.bpm * pl.fator, pl.compasso, Som.ctx.currentTime + 0.05); else Player.metro && Player.metro.parar(); }
+      sincronizarAtalhos();
+    }
+    $('#metronomo').addEventListener('change', e => definirMetronomo(e.target.checked));
     $('#nomes').addEventListener('change', e => { p.nomes = e.target.checked; salvar(); pl.desenhar(); sincronizarAtalhos(); });
     $('#repetir').addEventListener('change', e => { p.repetir = e.target.checked; salvar(); });
     const vozChk = $('#voz-chk'); if (vozChk) vozChk.addEventListener('change', e => { p.treinadorVoz = e.target.checked; salvar(); sincronizarAtalhos(); });
@@ -1956,12 +1966,16 @@
       const bv = $('[data-atalho="voz"]', raiz), bn = $('[data-atalho="nomes"]', raiz);
       if (bv) { bv.setAttribute('aria-pressed', String(p.treinadorVoz !== false)); bv.textContent = (p.treinadorVoz !== false ? '🔊' : '🔇') + ' Voz do treinador'; }
       if (bn) bn.setAttribute('aria-pressed', String(!!p.nomes));
+      const bm = $('[data-atalho="metronomo"]', raiz), mChk = $('#metronomo', raiz), mLig = a.leitura ? p.metronomoLeitura !== false : !!p.metronomo;
+      if (bm) bm.setAttribute('aria-pressed', String(mLig));
+      if (mChk) mChk.checked = mLig;
       if (vozChk) vozChk.checked = p.treinadorVoz !== false;
       const nomesChk = $('#nomes', raiz); if (nomesChk) nomesChk.checked = !!p.nomes;
     }
     $$('[data-atalho]', raiz).forEach(b => b.addEventListener('click', () => {
       if (b.dataset.atalho === 'voz') { p.treinadorVoz = p.treinadorVoz === false; if (!p.treinadorVoz) { Guia.cancelado = true; Narr.parar(); } }
       if (b.dataset.atalho === 'nomes') { p.nomes = !p.nomes; pl.desenhar(); }
+      if (b.dataset.atalho === 'metronomo') { definirMetronomo(!(a.leitura ? p.metronomoLeitura !== false : !!p.metronomo)); return; }
       salvar(); sincronizarAtalhos();
     }));
     const focoChk = $('#foco-chk'); if (focoChk) focoChk.addEventListener('change', e => { p.foco = e.target.checked; salvar(); pl.aplicarFoco(); });
