@@ -526,6 +526,7 @@
     ligado() { return estado.prefs.fluxo !== false; },
     parar() {
       this.cancelado = true; this.ativo = false; this.pendente = null;
+      marcarBotaoGuiada(false);
       if (this.timer) { clearInterval(this.timer); this.timer = null; }
       Guia.parar(); if (Guia.atual) Guia.atual.parar();
       const b = $('#fluxo-barra'); if (b) b.remove();
@@ -545,13 +546,16 @@
       const st = $('.status'); if (st) st.innerHTML = 'Toque em <b>Ligar o som</b> e a aula começa sozinha: explicação, demonstração e a sua vez.';
     },
     // aula prática: explicação (ou aula guiada) → praticar → resultado → avança ou repete
-    async pratica(a, pl, aoPassar) {
+    async pratica(a, pl, aoPassar, semExplicacao) {
       this.parar(); Narr.parar(); this.cancelado = false; this.ativo = true;
       guiado(true);
       const raiz = pl.raiz;
       rolar($('.palco', raiz));
       pl.atualizarStatus('Explicação: ouça e veja as teclas acesas.');
+      marcarBotaoGuiada(true);
       if (a.guia && a.guia.length) {
+        // primeiro a explicação da aula, depois o passo a passo com as teclas acesas
+        if (!semExplicacao && a.narracao) { await this.falar('aula-' + a.id, a.narracao); if (this.cancelado || !this.ativo) return; await espera(300); }
         await rodarGuia(a, pl);
       } else {
         const ev = pl.eventos[0];
@@ -597,7 +601,7 @@
       barra.addEventListener('click', e => {
         const b = e.target.closest('[data-fluxo]'); if (!b) return;
         if (b.dataset.fluxo === 'agora') avancar();
-        if (b.dataset.fluxo === 'repetir') { if (this.timer) clearInterval(this.timer); barra.remove(); pl.reiniciar(); $('#resultado').innerHTML = ''; this.pratica(a, pl, opts.aoPassar); }
+        if (b.dataset.fluxo === 'repetir') { if (this.timer) clearInterval(this.timer); barra.remove(); pl.reiniciar(); $('#resultado').innerHTML = ''; this.pratica(a, pl, opts.aoPassar, true); }
         if (b.dataset.fluxo === 'ouvir') { if (this.timer) clearInterval(this.timer); barra.remove(); const bO = $('[data-modo="ouvir"]', pl.raiz); if (bO) { this.clicando = true; bO.click(); this.clicando = false; } rolar($('.palco', pl.raiz)); this.ativo = false; }
         if (b.dataset.fluxo === 'parar') { this.parar(); estado.prefs.fluxo = false; salvar(); const chk = $('#fluxo-chk'); if (chk) chk.checked = false; }
       });
@@ -616,7 +620,21 @@
   document.addEventListener('pointerdown', () => { if (Fluxo.pendente && !Som.ligado) Som.iniciar(); }, { capture: true, passive: true });
 
   const ICONE_PLAY = '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M4 2.5v11l9.5-5.5z"/></svg>';
+  const ICONE_STOP = '<svg viewBox="0 0 16 16" aria-hidden="true"><rect fill="currentColor" x="3" y="3" width="10" height="10" rx="1.5"/></svg>';
   const ICONE_PAUSA = '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M3.5 2.5h3.2v11H3.5zm5.8 0h3.2v11H9.3z"/></svg>';
+  // o bloco do topo da aula: um botão que inicia a aula guiada (explicação lida, depois o passo a passo e a prática)
+  function blocoAulaGuiada(a) {
+    Narr.verificar('aula-' + a.id);
+    const seg = Math.round((a.narracao || '').split(/\s+/).length / 2.6) + (a.guia || []).reduce((t, g) => t + Math.round(g.fala.split(/\s+/).length / 2.6) + 2, 0);
+    return `<div class="narracao aula-guiada-topo">
+      <button class="play" type="button" data-guiada="iniciar" aria-label="Iniciar a aula guiada">${ICONE_PLAY}</button>
+      <div><span class="qual">Aula guiada: explicação, passo a passo e prática</span> <span class="suave mono">· ${Math.floor(seg / 60)}:${String(seg % 60).padStart(2, '0')}</span></div>
+      <details><summary>Ler o texto</summary><p>${esc(a.narracao || '')}</p></details>
+    </div>`;
+  }
+  function marcarBotaoGuiada(ligado) {
+    document.querySelectorAll('[data-guiada]').forEach(b => { b.dataset.estado = ligado ? 'tocando' : ''; b.innerHTML = ligado ? ICONE_STOP : ICONE_PLAY; b.setAttribute('aria-label', ligado ? 'Parar a aula guiada' : 'Iniciar a aula guiada'); });
+  }
   function blocoNarracao(id, titulo, texto) {
     Narr.verificar(id);
     const seg = Math.round(texto.split(/\s+/).length / 2.6);
@@ -1810,7 +1828,7 @@
     }
 
     el.innerHTML = `<div style="display:grid;gap:22px">${cab}
-      ${blocoNarracao('aula-' + id, a.guia ? 'Só a explicação, em áudio' : 'Explicação da aula', a.narracao)}
+      ${a.tipo === 'pratica' ? blocoAulaGuiada(a) : blocoNarracao('aula-' + id, 'Explicação da aula', a.narracao)}
       ${figurasHTML(a)}
       ${htmlPlayer(a)}
       <div id="resultado"></div>
@@ -1934,8 +1952,14 @@
     $('#resultado').addEventListener('click', e => {
       const b = e.target.closest('[data-res]'); if (!b || playerAtual !== pl) return;
       Fluxo.parar(); pl.reiniciar(); $('#resultado').innerHTML = '';
-      if (b.dataset.res === 'guiada') { Fluxo.cancelado = false; Fluxo.pratica(a, pl, opts.aoPassar); }
+      if (b.dataset.res === 'guiada') { Fluxo.cancelado = false; Fluxo.pratica(a, pl, opts.aoPassar, true); }
       else { const bPrat = $('[data-modo="praticar"]', pl.raiz); if (bPrat) bPrat.click(); rolar($('.palco', pl.raiz)); }
+    });
+    const bg = $('[data-guiada]');
+    if (bg) bg.addEventListener('click', () => {
+      Som.iniciar();
+      if (Fluxo.ativo && !Fluxo.cancelado && bg.dataset.estado === 'tocando') { Fluxo.parar(); return; }
+      Fluxo.cancelado = false; Fluxo.pratica(a, pl, opts.aoPassar);
     });
     if (opts.auto !== false && a.tipo === 'pratica') Fluxo.quandoPuder(() => Fluxo.pratica(a, pl, opts.aoPassar));
     return pl;
@@ -2850,7 +2874,7 @@
       }
       const passos = blocos.map(b => ({ tipo: b.tipo, aula: b.aula, nivel: b.nivel, modulo: b.modulo, bloco: b.bloco, titulo: b.titulo, sub: b.sub, min: b.fixo || b.mn }));
       const j = this.hoje;
-      (j && j.extras || []).forEach(id => { if (AULAS.has(id)) passos.push({ tipo: 'aula', aula: id, min: 10, titulo: 'Extra', sub: AULAS.get(id).titulo }); });
+      (j && j.extras || []).forEach(x => { const id = typeof x === 'string' ? x : x.id; const min = typeof x === 'string' ? 10 : x.min; if (AULAS.has(id)) passos.push({ tipo: 'aula', aula: id, min, titulo: 'Continuação do curso', sub: AULAS.get(id).titulo }); });
       return passos;
     },
     proximaExtra(plano) {
@@ -2858,7 +2882,13 @@
       const id = ORDEM.find(x => x !== '1-1' && !usadas.has(x) && statusAula(x) !== 'ok') || null;
       return id && !aulaTrancada(id) ? id : null;
     },
-    adicionarExtra(id) { const j = this.garantir(); j.extras = j.extras || []; j.extras.push(id); j.passo = this.plano().length - 1; salvar(); },
+    adicionarExtra(id) {
+      const j = this.garantir(); j.extras = j.extras || [];
+      // a próxima aula entra com o tempo que ainda cabe no dia (entre 5 e 25 min)
+      const restam = Math.round(this.limite - this.minutosHoje());
+      j.extras.push({ id, min: clamp(restam, 5, 25) });
+      j.passo = this.plano().length - 1; salvar();
+    },
     marcar(passo) { const j = this.garantir(); j.feitos[passo] = true; salvar(); },
     feito(passo) { const j = this.hoje; return !!(j && j.feitos[passo]); },
     inicioPasso(passo) { const j = this.garantir(); j.inicios = j.inicios || {}; if (!j.inicios[passo]) { j.inicios[passo] = Date.now(); salvar(); } return j.inicios[passo]; },
@@ -2913,12 +2943,13 @@
     if (j.passo >= plano.length) {
       const prox = Jornada.proximaExtra(plano);
       const restam = Math.max(0, Math.round(Jornada.limite - min));
+      const seguirJa = prox && restam >= 5;
       el.innerHTML = `<div style="display:grid;gap:22px">${barra}
         <div class="hoje-fim">
-          <h1>${(j.extras || []).length ? 'Etapa extra concluída.' : 'Jornada de hoje concluída.'}</h1>
-          <p class="texto">${Math.round(min)} minutos feitos. Ainda cabem ${restam} minutos no limite de hoje${prox ? ': o curso segue com a próxima aula' : ''}.</p>
+          <h1>${(j.extras || []).length ? 'Aula concluída.' : 'Jornada de hoje concluída.'}</h1>
+          <p class="texto">${Math.round(min)} minutos feitos. Ainda cabem ${restam} minutos no tempo de hoje${seguirJa ? ': o curso continua com a próxima aula' : prox ? '' : '. Não há aula seguinte liberada'}.</p>
           <div class="linha-botoes">
-            ${prox ? `<button class="btn primario" type="button" id="hoje-proxima">Próxima aula: ${idTexto(prox)} ${esc(AULAS.get(prox).titulo)} → ${Fluxo.ligado() ? '<span class="mono" id="hoje-proxima-seg">8</span>' : ''}</button>` : ''}
+            ${prox ? `<button class="btn primario" type="button" id="hoje-proxima">Continuar o curso: ${idTexto(prox)} ${esc(AULAS.get(prox).titulo)} → ${Fluxo.ligado() && seguirJa ? '<span class="mono" id="hoje-proxima-seg">4</span>' : ''}</button>` : ''}
             ${plano.map((p, i) => `<button class="btn" type="button" data-repetir="${i}">Repetir ${esc(p.titulo.toLowerCase())}</button>`).join('')}
             <a class="btn" href="#ouvido">Treino de ouvido (à parte)</a>
             <a class="btn" href="#musicas">Tocar músicas</a>
@@ -2929,7 +2960,7 @@
       if (bp) {
         const seguir = () => { if (cronometro) clearInterval(cronometro); Jornada.adicionarExtra(prox); renderHoje(); window.scrollTo(0, 0); };
         bp.addEventListener('click', seguir);
-        if (Fluxo.ligado()) { let n = 8; if (cronometro) clearInterval(cronometro); cronometro = setInterval(() => { n--; const sp = $('#hoje-proxima-seg'); if (sp) sp.textContent = n; if (n <= 0) seguir(); }, 1000); }
+        if (Fluxo.ligado() && seguirJa) { let n = 4; if (cronometro) clearInterval(cronometro); cronometro = setInterval(() => { n--; const sp = $('#hoje-proxima-seg'); if (sp) sp.textContent = n; if (n <= 0) seguir(); }, 1000); }
       }
       return;
     }
@@ -3048,7 +3079,7 @@
     const a = a0;
     const feito = Jornada.feito(j.passo) || statusAula(a.id) === 'ok';
     el.innerHTML = `<div style="display:grid;gap:22px">${barra}${cabPasso}
-      ${blocoNarracao('aula-' + a.id, a.guia ? 'Só a explicação, em áudio' : 'Explicação da aula', a.narracao)}
+      ${a.tipo === 'pratica' ? blocoAulaGuiada(a) : blocoNarracao('aula-' + a.id, 'Explicação da aula', a.narracao)}
       ${figurasHTML(a)}
       ${htmlPlayer(a)}<div id="resultado"></div>
       <div class="aula-info"><div><h3>Passo a passo</h3><ol>${a.passos.map(x => `<li>${esc(x)}</li>`).join('')}</ol></div>
