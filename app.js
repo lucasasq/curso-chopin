@@ -1793,7 +1793,7 @@
         <div>
           <h3>O que observar</h3>
           <ul>${a.foco.map(p => `<li>${esc(p)}</li>`).join('')}</ul>
-          <div class="criterio"><span class="rotulo">Para passar</span><p>${esc(a.criterio)}</p></div>
+          <div class="criterio"><span class="rotulo">Para passar</span><p>${esc(a.criterio)}</p><div class="concluir-manual"><button class="btn" type="button" data-concluir="${a.id}">✓ Marcar como concluída e seguir</button><small>Para quando você já treinou bastante e quer seguir sem a aprovação do site. A aula fica marcada como concluída por você, e dá para refazer depois.</small></div></div>
         </div>
       </div>`;
 
@@ -1807,7 +1807,7 @@
           <button class="btn primario" type="button" id="fiz-hoje" ${diasFeitos.has(hojeStr()) ? 'disabled' : ''}>${diasFeitos.has(hojeStr()) ? 'Feito hoje' : 'Fiz a rotina hoje'}</button>
           <span class="aviso">${diasFeitos.size} de 3 dias feitos${statusAula(id) === 'ok' ? ' · aula concluída' : ''}</span>
         </div>
-        <div class="criterio"><span class="rotulo">Para passar</span><p>${esc(a.criterio)}</p></div>
+        <div class="criterio"><span class="rotulo">Para passar</span><p>${esc(a.criterio)}</p><div class="concluir-manual"><button class="btn" type="button" data-concluir="${a.id}">✓ Marcar como concluída e seguir</button><small>Para quando você já treinou bastante e quer seguir sem a aprovação do site. A aula fica marcada como concluída por você, e dá para refazer depois.</small></div></div>
         ${navAulas}</div>`;
       $('#fiz-hoje').addEventListener('click', () => {
         registrarSessao({ quando: new Date().toISOString(), dia: hojeStr(), aula: id, minutos: a.minutos, completa: true });
@@ -1922,6 +1922,7 @@
     const p = estado.prefs, chave = a.chaveTempo || 'tempo';
     const raiz = $('#player');
     const pl = playerAtual = new Player(raiz, a);
+    pl.opts = opts;
     pl.atualizarTransporte();
     raiz.addEventListener('click', e => {
       const b = e.target.closest('button'); if (!b) return;
@@ -2044,12 +2045,30 @@
         <p class="aviso">Regularidade mede se o intervalo entre cada nota e a anterior acompanhou o ritmo escrito. Tocar devagar não tira pontos; parar para procurar a tecla, sim.</p></div>` : ''}
       ${linhas ? `<div class="dedos"><span class="rotulo">Força média por dedo (0 a 127)</span>${linhas}</div>` : ''}
       <div><span class="rotulo">O que fazer agora</span><ul class="dicas">${ds.map(d => `<li>${esc(d)}</li>`).join('')}</ul></div>
-      <div class="linha-botoes"><button class="btn" type="button" data-res="guiada">↺ Repetir com a aula guiada</button><button class="btn" type="button" data-res="praticar">↺ Praticar de novo</button></div>
+      <div class="linha-botoes"><button class="btn" type="button" data-res="guiada">↺ Repetir com a aula guiada</button><button class="btn" type="button" data-res="praticar">↺ Praticar de novo</button>${r.passou ? '' : `<button class="btn" type="button" data-concluir="${a.id}" title="Marca a aula como concluída sem a aprovação do site e segue para a próxima">✓ Marcar como concluída e seguir</button>`}</div>
       <p class="aviso">${Nuvem.logado ? 'Salvo neste aparelho e enviado para a nuvem.' : Nuvem.estado === 'sem-config' ? 'Salvo neste aparelho.' : 'Salvo só neste aparelho. Entre na aba Progresso para guardar também na nuvem.'}</p>
     </div>`;
     $('#resultado').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     falarFeedback(r);
   }
+  // concluir sem aprovação: o aluno decide que já treinou o bastante; fica registrado como conclusão manual
+  function concluirManual(id) {
+    const a = AULAS.get(id) || (playerAtual && playerAtual.aula.id === id ? playerAtual.aula : null);
+    if (!a) return;
+    Fluxo.parar(); Narr.parar();
+    const pl = playerAtual && playerAtual.aula.id === id ? playerAtual : null;
+    if (pl) { pl.parar(); Player.metro && Player.metro.parar(); }
+    estado.status[id] = { concluida: hojeStr(), manual: true }; salvar();
+    registrarSessao({ quando: new Date().toISOString(), dia: hojeStr(), aula: id, minutos: 0, maos: 'todas', tempo: Math.round(a.bpm || 0), completa: true, manual: true, r: { passou: true, manual: true, acertos: null } });
+    const opts = (pl && pl.opts) || {};
+    if (opts.aoResultado) opts.aoResultado({ r: { passou: true, manual: true } });
+    if (opts.aoPassar) opts.aoPassar(); else location.hash = 'curso';
+  }
+  document.addEventListener('click', e => {
+    const b = e.target.closest('[data-concluir]'); if (!b) return;
+    if (b.dataset.ok !== '1') { b.dataset.ok = '1'; b.textContent = 'Confirmar: concluir sem aprovação →'; setTimeout(() => { if (b.isConnected) { b.dataset.ok = ''; b.textContent = '✓ Marcar como concluída e seguir'; } }, 6000); return; }
+    concluirManual(b.dataset.concluir);
+  });
   function falarFeedback(r) {
     if (estado.prefs.feedbackFalado === false) return;
     const cat = r.passou ? (r.parcial ? 'parcial' : 'passou') : (['acertos', 'regularidade', 'bpm', 'buracos', 'dinamica', 'equilibrio', 'pedal'].find(k => r.faltas.some(f => f.startsWith({ acertos: 'notas certas', regularidade: 'regularidade', bpm: 'tempo', buracos: 'legato', dinamica: 'dinâmica', equilibrio: 'melodia', pedal: 'trocas de pedal' }[k]))) || 'acertos');
@@ -2063,8 +2082,8 @@
     return `<div style="display:grid;gap:10px"><h3>Suas últimas tentativas</h3><div class="tabela-wrap"><table>
       <thead><tr><th>Quando</th><th>Mãos</th><th>Tempo</th><th>Certas</th><th>Regularidade</th><th>Legato</th><th></th></tr></thead>
       <tbody>${ss.map(s => `<tr><td>${new Date(s.quando).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</td>
-        <td>${{ todas: 'ambas', D: 'direita', E: 'esquerda' }[s.maos] || '—'}</td><td class="num">♩ = ${s.r.bpm ?? '—'}</td><td class="num">${s.r.acertos}%</td>
-        <td class="num">${s.r.regularidade ?? '—'}%</td><td class="num">${s.r.buracos ?? '—'}</td><td>${s.r.passou ? '<span class="chip ok">passou</span>' : ''}</td></tr>`).join('')}</tbody>
+        <td>${{ todas: 'ambas', D: 'direita', E: 'esquerda' }[s.maos] || '—'}</td><td class="num">♩ = ${s.r.bpm ?? '—'}</td><td class="num">${s.r.acertos == null ? '—' : s.r.acertos + '%'}</td>
+        <td class="num">${s.r.regularidade ?? '—'}%</td><td class="num">${s.r.buracos ?? '—'}</td><td>${s.r.manual ? '<span class="chip">concluída por você</span>' : s.r.passou ? '<span class="chip ok">passou</span>' : ''}</td></tr>`).join('')}</tbody>
     </table></div></div>`;
   }
 
@@ -2089,7 +2108,7 @@
       const f = r.forca || {};
       const forca = ['D', 'E'].map(h => [1, 2, 3, 4, 5].some(k => f[h + k] != null) ? `${h === 'D' ? 'MD' : 'ME'} ${[1, 2, 3, 4, 5].map(k => `${k}:${f[h + k] ?? '-'}`).join(' ')}` : '').filter(Boolean).join(' | ');
       const onde = r.ondeBuracos ? Object.entries(r.ondeBuracos).map(([k, v]) => `${k}×${v}`).join(', ') : '';
-      linhas.push(`- ${s.dia} · ${rotuloAula(s.aula)} (${{ todas: 'ambas', D: 'MD', E: 'ME' }[s.maos] || '-'}, tempo pedido ♩=${s.tempo}) · certas ${r.acertos}% · regularidade ${r.regularidade ?? '-'}% · ♩=${r.bpm ?? '-'}`
+      linhas.push(`- ${s.dia} · ${rotuloAula(s.aula)} (${{ todas: 'ambas', D: 'MD', E: 'ME' }[s.maos] || '-'}, tempo pedido ♩=${s.tempo}) · certas ${r.acertos == null ? 'concluída manualmente' : r.acertos + '%'} · regularidade ${r.regularidade ?? '-'}% · ♩=${r.bpm ?? '-'}`
         + (r.buracos != null ? ` · legato: ${r.buracos} buraco(s)${onde ? ' [' + onde + ']' : ''}` : '')
         + (r.staccato != null ? ` · staccato curto ${r.staccato}%` : '')
         + (r.dinamica != null ? ` · dinâmica ${r.dinamica}%` : '')
@@ -2786,7 +2805,7 @@
         <p class="aviso">Os números nas notas são uma sugestão de dedilhado calculada pelo site, seguindo Chopin: dedos longos nas teclas pretas, polegar nas brancas. Se algum dedo não encaixar na sua mão, use o que for mais natural e mantenha sempre o mesmo.</p></div>
       ${htmlPlayer(a)}
       <div id="resultado"></div>
-      <div class="criterio"><span class="rotulo">Para passar</span><p>${esc(a.criterio)}</p></div>
+      <div class="criterio"><span class="rotulo">Para passar</span><p>${esc(a.criterio)}</p><div class="concluir-manual"><button class="btn" type="button" data-concluir="${a.id}">✓ Marcar como concluída e seguir</button><small>Para quando você já treinou bastante e quer seguir sem a aprovação do site. A aula fica marcada como concluída por você, e dá para refazer depois.</small></div></div>
       ${historicoAula(a.id)}
     </div>`;
     const atual = $('#etapas [aria-current="step"]');
@@ -3111,7 +3130,7 @@
           <div class="aula-cab"><span class="rotulo">${esc(peca.compositor)} · ${esc(peca.titulo)} · etapa ${e.n} de ${total}</span><h2>${esc(e.titulo)}</h2><p class="texto suave">${esc(dicaEtapa(e, a.bpm))}</p></div>
           ${blocoNarracao('aula-' + a0.id, 'Guia de estudo da peça', a0.narracao)}
           ${htmlPlayer(a)}<div id="resultado"></div>
-          <div class="criterio"><span class="rotulo">Para passar</span><p>${esc(a.criterio)}</p></div>
+          <div class="criterio"><span class="rotulo">Para passar</span><p>${esc(a.criterio)}</p><div class="concluir-manual"><button class="btn" type="button" data-concluir="${a.id}">✓ Marcar como concluída e seguir</button><small>Para quando você já treinou bastante e quer seguir sem a aprovação do site. A aula fica marcada como concluída por você, e dá para refazer depois.</small></div></div>
           ${rodape(feito, 'Repetir a etapa')}</div>`;
         montarPlayer(a, { aoResultado: () => liberar(), aoPassar: () => $('#hoje-continuar') && $('#hoje-continuar').click(), ultimo: j.passo + 1 >= plano.length });
         $('#hoje-repetir').addEventListener('click', () => { if (playerAtual) { playerAtual.reiniciar(); $('#resultado').innerHTML = ''; } });
@@ -3126,7 +3145,7 @@
       ${figurasHTML(a)}
       ${htmlPlayer(a)}<div id="resultado"></div>
       <div class="aula-info"><div><h3>Passo a passo</h3><ol>${a.passos.map(x => `<li>${esc(x)}</li>`).join('')}</ol></div>
-        <div><h3>O que observar</h3><ul>${a.foco.map(x => `<li>${esc(x)}</li>`).join('')}</ul><div class="criterio"><span class="rotulo">Para passar</span><p>${esc(a.criterio)}</p></div></div></div>
+        <div><h3>O que observar</h3><ul>${a.foco.map(x => `<li>${esc(x)}</li>`).join('')}</ul><div class="criterio"><span class="rotulo">Para passar</span><p>${esc(a.criterio)}</p><div class="concluir-manual"><button class="btn" type="button" data-concluir="${a.id}">✓ Marcar como concluída e seguir</button><small>Para quando você já treinou bastante e quer seguir sem a aprovação do site. A aula fica marcada como concluída por você, e dá para refazer depois.</small></div></div></div></div>
       ${rodape(feito, 'Repetir o exercício')}</div>`;
     montarPlayer(a, { aoResultado: () => liberar(), aoPassar: () => $('#hoje-continuar') && $('#hoje-continuar').click(), ultimo: j.passo + 1 >= plano.length });
     $('#hoje-repetir').addEventListener('click', () => { if (playerAtual) { playerAtual.reiniciar(); $('#resultado').innerHTML = ''; } });
