@@ -2522,7 +2522,7 @@
     return { pl, feitas, total: pl.etapas.length, prox };
   }
   rotuloAula = id => {
-    if (id === 'ouvir') return 'Ouvir e cantar';
+    if (id === 'ouvir') return 'Ouvir a gravação';
     if (!id.startsWith('m:')) return 'aula ' + idTexto(id);
     const [, mid] = id.split(':');
     const m = estado.musicas.find(x => x.id === mid);
@@ -2807,11 +2807,11 @@
       const extra2 = ordem.find(id => !feita(id) && id !== exercicio && id !== tecnica && !aulaTrancada(id)) || null;
       const aulaB = (id, titulo, peso, min, max) => id ? { tipo: 'aula', aula: id, titulo, sub: AULAS.get(id).titulo, peso, min, max } : null;
       const ouvB = (bloco, titulo, sub, fixo) => OUV ? { tipo: 'ouvido', bloco, titulo, sub, fixo } : null;
-      const cantar = fixo => ouvB('cantar', 'Cantar', 'Afinar com a voz: a frase antes do dedo', fixo);
+      // o bloco Cantar (microfone) fica fora da jornada: o app MIDIWeb do iPad não libera o microfone; está na aba Ouvido, para quem abrir no Safari
       const tirar = () => ouvB('tirar', 'Tirar de ouvido', 'Uma frase da peça, sem partitura', 6);
       const ditado = () => ouvB('ditado', 'Ditado', 'Ouvir e tocar de volta', 5);
       const intervalos = () => ouvB('intervalos', 'Intervalos', 'Achar a segunda nota', 4);
-      const ouvir = { tipo: 'ouvir', modulo: modEx, titulo: 'Ouvir e cantar', sub: modEx && modEx.ouvir ? modEx.ouvir.rotulo : 'A gravação do módulo', fixo: 5 };
+      const ouvir = { tipo: 'ouvir', modulo: modEx, titulo: 'Ouvir a gravação', sub: modEx && modEx.ouvir ? modEx.ouvir.rotulo : 'A gravação do módulo', fixo: 5 };
       const revisao = () => emAndamento[0] && T >= 30 ? aulaB(emAndamento[0], 'Revisão', 2, 5, 15) : null;
       const segunda = () => extra2 && T >= 90 ? aulaB(extra2, 'Segunda aula', 2, 10, 20) : null;
       const rubato = (peso, tMin) => rubs.length && T >= tMin ? aulaB(rubs[0], 'Rubato', peso, 5, 12) : null;
@@ -2822,19 +2822,19 @@
           : { tipo: 'aula', aula: exercicio, titulo: 'Exercício ou peça', sub: AULAS.get(exercicio).titulo, peso: 4, min: T < 30 ? 6 : 10, max: nivelN >= 5 ? 40 : 30 },
       ];
       const porNivel = {
-        1: [T >= 40 ? cantar(4) : null, ouvir, T >= 60 ? intervalos() : null, T >= 90 ? ditado() : null, revisao(), segunda()],
+        1: [ouvir, T >= 60 ? intervalos() : null, T >= 90 ? ditado() : null, revisao(), segunda()],
         2: [T >= 45 ? aulaB(maestro[0], 'Esquerda maestro', 1.5, 4, 10) : null, T >= 45 ? aulaB(bach[0], 'Bach de cada dia', 1.5, 5, 12) : null,
-            T >= 30 ? cantar(5) : null, T >= 60 && leitura[0] ? { tipo: 'aula', aula: leitura[0], titulo: 'Leitura', sub: AULAS.get(leitura[0]).titulo, fixo: 4 } : null,
+            T >= 60 && leitura[0] ? { tipo: 'aula', aula: leitura[0], titulo: 'Leitura', sub: AULAS.get(leitura[0]).titulo, fixo: 4 } : null,
             ouvir, T >= 60 ? tirar() : null, T >= 90 ? ditado() : null, T >= 90 ? intervalos() : null, revisao(), segunda()],
         3: [T >= 45 ? aulaB(bach[0], 'Bach e Field', 1.5, 5, 12) : null,
             modAtualN >= 10 ? rubato(1.5, 45) : (T >= 60 ? aulaB(maestro[0], 'Esquerda maestro', 1, 4, 8) : null),
-            T >= 40 ? cantar(4) : null, T >= 60 && leitura[0] ? { tipo: 'aula', aula: leitura[0], titulo: 'Leitura', sub: AULAS.get(leitura[0]).titulo, fixo: 4 } : null,
+            T >= 60 && leitura[0] ? { tipo: 'aula', aula: leitura[0], titulo: 'Leitura', sub: AULAS.get(leitura[0]).titulo, fixo: 4 } : null,
             ouvir, T >= 45 ? tirar() : null, T >= 75 ? ditado() : null, T >= 90 ? intervalos() : null, revisao(), segunda()],
         4: [rubato(1.5, 40), T >= 60 ? aulaB(pedal[0], 'Pedal como cor', 1, 4, 10) : null, T >= 60 ? aulaB(bach[0], 'Bach e Field', 1, 5, 10) : null,
-            T >= 40 ? cantar(4) : null, T >= 75 && leitura[0] ? { tipo: 'aula', aula: leitura[0], titulo: 'Leitura', sub: AULAS.get(leitura[0]).titulo, fixo: 4 } : null,
+            T >= 75 && leitura[0] ? { tipo: 'aula', aula: leitura[0], titulo: 'Leitura', sub: AULAS.get(leitura[0]).titulo, fixo: 4 } : null,
             ouvir, T >= 45 ? tirar() : null, T >= 75 ? ditado() : null, T >= 90 ? intervalos() : null, revisao(), segunda()],
         5: [rubato(1, 45), T >= 60 ? aulaB(bach[0], 'Bach', 1, 5, 10) : null, T >= 75 ? aulaB(pedal[0], 'Pedal', 1, 4, 10) : null,
-            T >= 45 ? cantar(4) : null, ouvir, T >= 60 ? tirar() : null, T >= 90 ? ditado() : null, T >= 105 ? intervalos() : null, revisao(), segunda()],
+            ouvir, T >= 60 ? tirar() : null, T >= 90 ? ditado() : null, T >= 105 ? intervalos() : null, revisao(), segunda()],
       };
       const blocos = [...cabeca, ...(porNivel[nivelN] || porNivel[1])].filter(Boolean);
       const fixos = blocos.reduce((s, b) => s + (b.fixo || 0), 0);
