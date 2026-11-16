@@ -91,6 +91,13 @@
     return [...por.values()];
   }
   if (semDuplicadas(estado.sessoes).length !== estado.sessoes.length) { estado.sessoes = semDuplicadas(estado.sessoes); }
+  // músicas: o id é a chave na nuvem, então também não pode repetir no mesmo lote (fica a cópia mais recente)
+  function musicasSemDuplicadas(lista) {
+    const por = new Map();
+    for (const m of lista) { const atual = por.get(m.id); if (!atual || (m.atualizado_em || '') >= (atual.atualizado_em || '')) por.set(m.id, m); }
+    return [...por.values()];
+  }
+  if (Array.isArray(estado.musicas) && musicasSemDuplicadas(estado.musicas).length !== estado.musicas.length) { estado.musicas = musicasSemDuplicadas(estado.musicas); }
   const Nuvem = {
     cli: null, usuario: null, estado: 'sem-config', erro: '', email: store.get('nuvemEmail', ''),
     ultima: store.get('nuvemUltima', null), ocupada: false, timer: null,
@@ -127,6 +134,8 @@
       if (/rate limit|too many|seconds/i.test(m)) return 'Muitas tentativas seguidas. Espere um minuto e tente de novo.';
       if (/musicas/i.test(m) && /does not exist|schema cache|relation|not find/i.test(m))
         return 'As aulas estão salvas na nuvem. Para guardar também as músicas, rode o arquivo ferramentas/supabase-musicas.sql no SQL Editor do Supabase e toque em Sincronizar agora.';
+      if (/cannot affect row a second time/i.test(m))
+        return 'A nuvem recebeu duas linhas com a mesma chave no mesmo envio ' + (m.match(/^\[[^\]]+\]/) || [''])[0] + '. Recarregue a página e toque em Sincronizar agora; se continuar, copie esta mensagem inteira: ' + m;
       if (/fetch|network|load failed|offline/i.test(m) || !navigator.onLine)
         return 'Sem conexão com a nuvem agora. Seus dados continuam salvos neste aparelho e sobem quando ela voltar. Se isso durar mais de um dia, abra o painel do Supabase: projetos gratuitos parados por uma semana são pausados e precisam ser restaurados lá.';
       return 'A nuvem respondeu com um erro: ' + m;
@@ -146,6 +155,7 @@
       this.usuario = data.user; this.estado = 'ligada';
       await this.sincronizar(true);
     },
+    rotular(e, tabela) { try { e.message = `[${tabela}] ` + (e.message || ''); } catch (x) { /* mensagem só leitura */ } return e; },
     async sincronizarMusicas(uid) {
       const { data, error } = await this.cli.from('musicas').select('id,dados,atualizado_em');
       if (error) throw error;
@@ -159,11 +169,12 @@
           mudou = true;
         }
       });
+      if (musicasSemDuplicadas(estado.musicas).length !== estado.musicas.length) { estado.musicas = musicasSemDuplicadas(estado.musicas); salvar(); }
       const pend = estado.musicas.filter(x => x.sync === false);
       if (pend.length) {
-        const linhas = pend.map(x => { const d = Object.assign({}, x); delete d.sync; return { user_id: uid, id: x.id, titulo: x.titulo, dados: d, removida: !!x.removida, atualizado_em: x.atualizado_em }; });
+        const linhas = musicasSemDuplicadas(pend).map(x => { const d = Object.assign({}, x); delete d.sync; return { user_id: uid, id: x.id, titulo: x.titulo, dados: d, removida: !!x.removida, atualizado_em: x.atualizado_em }; });
         const { error: e2 } = await this.cli.from('musicas').upsert(linhas, { onConflict: 'user_id,id' });
-        if (e2) throw e2;
+        if (e2) throw this.rotular(e2, 'músicas');
         pend.forEach(x => { x.sync = true; });
         mudou = true;
       }
@@ -199,12 +210,12 @@
           const lote = pend.slice(i, i + 200);
           const linhas = semDuplicadas(lote).map(x => { const d = Object.assign({}, x); delete d.sync; return { user_id: uid, id: idSessao(x), quando: x.quando, aula: x.aula, dados: d }; });
           const { error } = await this.cli.from('sessoes').upsert(linhas, { onConflict: 'user_id,id' });
-          if (error) throw error;
+          if (error) throw this.rotular(error, 'sessões');
           lote.forEach(x => { x.sync = true; });
           salvar();
         }
         const { error: e3 } = await this.cli.from('status_aulas').upsert({ user_id: uid, dados: estado.status, atualizado_em: new Date().toISOString() }, { onConflict: 'user_id' });
-        if (e3) throw e3;
+        if (e3) throw this.rotular(e3, 'status das aulas');
         this.ultima = new Date().toISOString(); store.set('nuvemUltima', this.ultima);
         this.erro = ''; this.estado = 'ligada';
         try { await this.sincronizarMusicas(uid); }
@@ -2690,7 +2701,8 @@
 
   function salvarMusica(m) {
     m.atualizado_em = new Date().toISOString(); m.sync = false;
-    if (!estado.musicas.includes(m)) estado.musicas.push(m);
+    const jaTem = estado.musicas.find(x => x.id === m.id);
+    if (!jaTem) estado.musicas.push(m); else if (jaTem !== m) Object.assign(jaTem, m);
     salvar(); Nuvem.agendar();
   }
 
