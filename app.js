@@ -1037,7 +1037,7 @@
       [this.lo, this.hi] = faixa(ativas);
       // janela de queda: aulas com muitas notas curtas (semicolcheias) descem mais devagar na tela, para as notas não se empilharem
       const ds = ativas.map(n => n.d).sort((a, b) => a - b), q = ds[Math.floor(ds.length * 0.25)] || 1;
-      this.janela = q <= 0.25 ? 3.5 : q <= 0.5 ? 4.25 : 5;
+      this.qMin = q; // a janela de queda é calculada no desenho, pela altura do palco, para a nota curta mais comum caber a letra
       const grupos = new Map();
       for (const n of ativas) {
         const k = n.t.toFixed(3);
@@ -1387,7 +1387,7 @@
     desenhar() {
       const { ctx, w, h } = prepararCanvas(this.cv);
       const kh = Math.min(120, h * 0.24), ky = h - kh;
-      const janela = this.janela || 5, ppb = (ky - 8) / janela;
+      const janela = clamp((ky - 8) * (this.qMin || 1) / 26, 2.5, 5), ppb = (ky - 8) / janela;
       const geo = geometria(this.lo, this.hi, w);
       const corD = css('--rh'), corE = css('--lh'), linha = css('--stage-line'), textoPalco = css('--stage-text');
       const bemois = this.aula.notas.some(n => /♭/.test(n.n || ''));
@@ -1419,49 +1419,46 @@
         const fora = this.maos !== 'todas' && n.h !== this.maos;
         const cor = n.h === 'D' ? corD : corE;
         const din = temDinamica(this.aula);
-        const padBase = p.preta ? 1 : p.w * 0.1;
-        const pad = din ? padBase + (p.w - 2 * padBase) * (1 - (0.35 + 0.65 * n.v)) / 2 : padBase; // com dinâmica, a largura mostra a força
+        const pad = p.preta ? 1 : p.w * 0.1;
         const x = p.x + pad, ww = p.w - pad * 2;
-        const topo = Math.max(yt, -4), base = Math.min(yb, ky) - 1;
+        // o bloco nunca fica mais baixo que ALT_MIN: a letra da nota tem de caber dentro (as notas curtas se sobrepõem um pouco)
+        const ALT_MIN = 22;
+        let topo = Math.max(yt, -4); const base = Math.min(yb, ky) - 1;
         if (base - topo < 1) continue;
-        ctx.globalAlpha = fora ? 0.18 : feitas.has(n) ? 0.35 : (din ? 0.9 : 0.5 + 0.5 * n.v);
+        if (base - topo < ALT_MIN && yt > -4) topo = base - ALT_MIN;
+        // força: bloco claro = forte, apagado = suave (nas aulas com dinâmica a diferença é maior)
+        const forca = din ? 0.3 + 0.7 * n.v : 0.55 + 0.45 * n.v;
+        ctx.globalAlpha = fora ? 0.18 : feitas.has(n) ? 0.3 : forca;
         ctx.fillStyle = cor;
         ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x, topo, ww, base - topo, 5) : ctx.rect(x, topo, ww, base - topo); ctx.fill();
+        if (din && n.v >= 0.7 && !fora && !feitas.has(n)) { ctx.globalAlpha = 1; ctx.strokeStyle = cor; ctx.lineWidth = 1.5; ctx.strokeRect(x + 0.75, topo + 0.75, ww - 1.5, base - topo - 1.5); }
         if (evAtual && evAtual.notas.includes(n) && evAtual.pendentes.has(n.m)) {
           ctx.globalAlpha = 1; ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2;
           ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x, topo, ww, base - topo, 5) : ctx.rect(x, topo, ww, base - topo); ctx.stroke();
         }
+        // rótulos, por prioridade: 1) a letra da nota, grande; 2) o dedo; 3) a força (só quando sobra espaço)
         ctx.globalAlpha = fora ? 0.3 : 1;
         const alt = base - topo;
-        const letra = letras ? letras[n.m % 12] : '';
-        if (alt <= 18 && ww > 10 && yt > -4) {
-          // nota curta (semicolcheia): o rótulo não cabe dentro, então fica logo acima do bloco, na cor da mão
-          ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
-          ctx.fillStyle = cor; ctx.globalAlpha = fora ? 0.3 : 1;
-          ctx.font = `700 ${clamp(ww * 0.5, 10, 13)}px ${css('--font-mono')}`;
-          ctx.fillText(letra && n.f ? `${letra}·${n.f}` : letra || (n.f ? String(n.f) : rotuloNota(n)), x + ww / 2, topo - 3);
-        } else if (letra && ww > 12 && yt > -4) {
-          // letra da nota: no topo do bloco quando cabe, senão logo acima dele
-          ctx.textAlign = 'center';
-          if (alt > 30 && !(din && alt <= 44)) { ctx.textBaseline = 'middle'; ctx.fillStyle = '#10121a'; ctx.font = `700 ${clamp(ww * 0.42, 10, 14)}px ${css('--font-mono')}`; ctx.fillText(letra, x + ww / 2, Math.max(topo, 0) + (din ? 24 : 11)); }
-          else { ctx.textBaseline = 'alphabetic'; ctx.fillStyle = cor; ctx.font = `700 ${clamp(ww * 0.45, 10, 13)}px ${css('--font-mono')}`; ctx.fillText(letra, x + ww / 2, topo - 3); }
-        }
-        if (alt > 18 && ww > 12) {
-          ctx.fillStyle = '#10121a';
-          ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-          if (n.f) { ctx.font = `700 ${clamp(ww * 0.55, 10, 16)}px ${css('--font-mono')}`; ctx.fillText(String(n.f), x + ww / 2, base - 10); }
-          else { ctx.font = `700 ${clamp(ww * 0.34, 8, 12)}px ${css('--font-body')}`; ctx.fillText(rotuloNota(n), x + ww / 2, base - 10); }
-          if (n.f && estado.prefs.nomes && !letras && base - topo > 30) {
-            ctx.font = `600 ${clamp(ww * 0.3, 9, 12)}px ${css('--font-body')}`;
-            ctx.fillText(rotuloNota(n), x + ww / 2, base - 28);
-          }
-          if (din && base - topo > 30) {
-            // rótulo de força no topo da nota, em itálico como na partitura
-            const d = dinamicaDe(n.v);
-            ctx.font = `italic 700 ${clamp(p.w * 0.5, 11, 15)}px Georgia, serif`;
-            ctx.fillStyle = '#ffffff'; ctx.globalAlpha = 0.95;
-            ctx.fillText(d[1], p.x + p.w / 2, Math.max(topo, 0) + 11);
-            ctx.globalAlpha = 1;
+        const letra = letras ? letras[n.m % 12] : (n.f ? '' : rotuloNota(n));
+        if (ww > 12 && alt >= 16) {
+          ctx.fillStyle = '#10121a'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+          const fontL = clamp(ww * 0.6, 11, 19), fontF = clamp(ww * 0.42, 9, 13);
+          if (alt < 40) {
+            // uma linha: letra grande e, se couber, o dedo menor ao lado
+            const fL = `800 ${fontL}px ${css('--font-mono')}`, fF = `700 ${fontF}px ${css('--font-mono')}`;
+            ctx.font = fL; const lw = letra ? ctx.measureText(letra).width : 0;
+            ctx.font = fF; const fw = n.f ? ctx.measureText(String(n.f)).width : 0;
+            const cabeDedo = n.f && (!letra || lw + 3 + fw <= ww - 4);
+            const tw = lw + (cabeDedo && letra ? 3 + fw : 0);
+            let cx = x + ww / 2 - tw / 2; ctx.textAlign = 'left'; const cy = topo + alt / 2 + 1;
+            if (letra) { ctx.font = fL; ctx.fillText(letra, cx, cy); cx += lw + 3; }
+            if (cabeDedo) { ctx.font = fF; ctx.fillText(String(n.f), letra ? cx : x + ww / 2 - fw / 2, cy); }
+            ctx.textAlign = 'center';
+          } else {
+            // duas linhas: letra em cima (grande), dedo embaixo; a força, pequena, só quando o bloco é alto
+            if (letra) { ctx.font = `800 ${fontL}px ${css('--font-mono')}`; ctx.fillText(letra, x + ww / 2, Math.max(topo, 0) + 13); }
+            if (n.f) { ctx.font = `700 ${clamp(ww * 0.5, 10, 15)}px ${css('--font-mono')}`; ctx.fillText(String(n.f), x + ww / 2, base - 11); }
+            if (din && alt > 64) { ctx.font = `italic 700 ${clamp(ww * 0.4, 10, 13)}px Georgia, serif`; ctx.globalAlpha = fora ? 0.3 : 0.75; ctx.fillText(dinamicaDe(n.v)[1], x + ww / 2, base - 30); }
           }
         }
         ctx.globalAlpha = 1;
@@ -1492,7 +1489,7 @@
       }
       if (temDinamica(this.aula)) {
         ctx.font = `600 11px ${css('--font-mono')}`; ctx.textAlign = 'right'; ctx.textBaseline = 'middle'; ctx.fillStyle = textoPalco;
-        ctx.fillText('FORÇA: pp p mp mf f ff · nota larga = forte, estreita = suave', w - 10, 32);
+        ctx.fillText('FORÇA: nota clara = forte, apagada = suave', w - 10, 32);
       }
       // etapa de uma mão só: aviso grande e a outra mão apagada
       const soMao = this.maos !== 'todas' ? this.maos : (temD && !temE ? 'D' : temE && !temD ? 'E' : null);
