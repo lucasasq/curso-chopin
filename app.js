@@ -83,6 +83,14 @@
 
   /* ------------------------------------------------------------ nuvem (Supabase) */
   const idSessao = s => s.quando + '|' + s.aula;
+  // duas sessões com a mesma chave (mesmo instante e mesma aula) quebram o envio em lote para a nuvem
+  // ("ON CONFLICT DO UPDATE command cannot affect row a second time"): fica só uma, de preferência a que tem resultado
+  function semDuplicadas(lista) {
+    const por = new Map();
+    for (const s of lista) { const k = idSessao(s); const atual = por.get(k); if (!atual || (!atual.r && s.r)) por.set(k, s); }
+    return [...por.values()];
+  }
+  if (semDuplicadas(estado.sessoes).length !== estado.sessoes.length) { estado.sessoes = semDuplicadas(estado.sessoes); }
   const Nuvem = {
     cli: null, usuario: null, estado: 'sem-config', erro: '', email: store.get('nuvemEmail', ''),
     ultima: store.get('nuvemUltima', null), ocupada: false, timer: null,
@@ -185,10 +193,11 @@
           store.set('nuvemBaixou.' + uid, true);
           salvar();
         }
+        if (semDuplicadas(estado.sessoes).length !== estado.sessoes.length) { estado.sessoes = semDuplicadas(estado.sessoes); salvar(); }
         const pend = estado.sessoes.filter(x => !x.sync);
         for (let i = 0; i < pend.length; i += 200) {
           const lote = pend.slice(i, i + 200);
-          const linhas = lote.map(x => { const d = Object.assign({}, x); delete d.sync; return { user_id: uid, id: idSessao(x), quando: x.quando, aula: x.aula, dados: d }; });
+          const linhas = semDuplicadas(lote).map(x => { const d = Object.assign({}, x); delete d.sync; return { user_id: uid, id: idSessao(x), quando: x.quando, aula: x.aula, dados: d }; });
           const { error } = await this.cli.from('sessoes').upsert(linhas, { onConflict: 'user_id,id' });
           if (error) throw error;
           lote.forEach(x => { x.sync = true; });
